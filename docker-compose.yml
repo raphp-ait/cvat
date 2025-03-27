@@ -97,7 +97,13 @@ services:
       CVAT_ANALYTICS: 1
       CVAT_BASE_URL:
       ONE_RUNNING_JOB_IN_QUEUE_PER_USER:
-    command: init run server
+    entrypoint:
+      - "sh"
+      - "-c"
+      - >
+          echo 'HEALTH_CHECK = {"DISK_USAGE_MAX": 99}' >> /home/django/cvat/settings/base.py &&
+          exec ./backend_entrypoint.sh init run server
+
     labels:
       - traefik.enable=true
       - traefik.http.services.cvat.loadbalancer.server.port=8080
@@ -105,7 +111,7 @@ services:
         PathPrefix(`/api/`, `/static/`, `/admin`, `/documentation/`, `/django-rq`)
       - traefik.http.routers.cvat.entrypoints=web
     volumes:
-      - cvat_data:/home/django/data
+      - /mnt/bigDisk/home/picklr/cvat_data:/home/django/data:rw
       - cvat_keys:/home/django/keys
       - cvat_logs:/home/django/logs
     networks:
@@ -124,7 +130,7 @@ services:
       NUMPROCS: 1
     command: run utils
     volumes:
-      - cvat_data:/home/django/data
+      - /mnt/bigDisk/home/picklr/cvat_data:/home/django/data:rw
       - cvat_keys:/home/django/keys
       - cvat_logs:/home/django/logs
     networks:
@@ -140,7 +146,7 @@ services:
       NUMPROCS: 2
     command: run worker.import
     volumes:
-      - cvat_data:/home/django/data
+      - /mnt/bigDisk/home/picklr/cvat_data:/home/django/data:rw
       - cvat_keys:/home/django/keys
       - cvat_logs:/home/django/logs
     networks:
@@ -156,7 +162,7 @@ services:
       NUMPROCS: 2
     command: run worker.export
     volumes:
-      - cvat_data:/home/django/data
+      - /mnt/bigDisk/home/picklr/cvat_data:/home/django/data:rw
       - cvat_keys:/home/django/keys
       - cvat_logs:/home/django/logs
     networks:
@@ -172,7 +178,7 @@ services:
       NUMPROCS: 1
     command: run worker.annotation
     volumes:
-      - cvat_data:/home/django/data
+      - /mnt/bigDisk/home/picklr/cvat_data:/home/django/data:rw
       - cvat_keys:/home/django/keys
       - cvat_logs:/home/django/logs
     networks:
@@ -188,7 +194,7 @@ services:
       NUMPROCS: 1
     command: run worker.webhooks
     volumes:
-      - cvat_data:/home/django/data
+      - /mnt/bigDisk/home/picklr/cvat_data:/home/django/data:rw
       - cvat_keys:/home/django/keys
       - cvat_logs:/home/django/logs
     networks:
@@ -204,7 +210,7 @@ services:
       NUMPROCS: 1
     command: run worker.quality_reports
     volumes:
-      - cvat_data:/home/django/data
+      - /mnt/bigDisk/home/picklr/cvat_data:/home/django/data:rw
       - cvat_keys:/home/django/keys
       - cvat_logs:/home/django/logs
     networks:
@@ -220,7 +226,7 @@ services:
       NUMPROCS: 2
     command: run worker.analytics_reports
     volumes:
-      - cvat_data:/home/django/data
+      - /mnt/bigDisk/home/picklr/cvat_data:/home/django/data:rw
       - cvat_keys:/home/django/keys
       - cvat_logs:/home/django/logs
     networks:
@@ -236,7 +242,23 @@ services:
       NUMPROCS: 2
     command: run worker.chunks
     volumes:
-      - cvat_data:/home/django/data
+      - /mnt/bigDisk/home/picklr/cvat_data:/home/django/data:rw
+      - cvat_keys:/home/django/keys
+      - cvat_logs:/home/django/logs
+    networks:
+      - cvat
+
+  cvat_worker_consensus:
+    container_name: cvat_worker_consensus
+    image: cvat/server:${CVAT_VERSION:-dev}
+    restart: always
+    depends_on: *backend-deps
+    environment:
+      <<: *backend-env
+      NUMPROCS: 1
+    command: run worker.consensus
+    volumes:
+      - /mnt/bigDisk/home/picklr/cvat_data:/home/django/data:rw
       - cvat_keys:/home/django/keys
       - cvat_logs:/home/django/logs
     networks:
@@ -255,7 +277,8 @@ services:
       - traefik.http.routers.cvat-ui.entrypoints=web
     networks:
       - cvat
-
+    volumes:
+      - /mnt/bigDisk/home/picklr/cvat_data:/home/django/data:rw
   traefik:
     image: traefik:v2.10
     container_name: traefik
