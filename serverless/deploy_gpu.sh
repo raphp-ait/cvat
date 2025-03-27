@@ -20,7 +20,6 @@ do
         --file "$func_config" --platform local \
         --env CVAT_FUNCTIONS_REDIS_HOST=cvat_redis_ondisk \
         --env CVAT_FUNCTIONS_REDIS_PORT=6666 \
-        --volume `pwd`/serverless/common:/opt/nuclio/common \
         --platform-config '{"attributes": {"network": "cvat_cvat"}}'
 done
 
