@@ -1116,15 +1116,7 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     </Col>
                 </Row>
                 <div className='cvat-tools-interactor-setups'>
-                    <div>
-                        <Switch
-                            checked={convertMasksToPolygons}
-                            onChange={(checked: boolean) => {
-                                this.setState({ convertMasksToPolygons: checked });
-                            }}
-                        />
-                        <Text>Convert masks to polygons</Text>
-                    </div>
+
 
                     {renderStartWithBox && (
                         <div>
@@ -1403,16 +1395,11 @@ export class ToolsControlComponent extends React.PureComponent<Props, State> {
                     }, {
                         key: 'detectors',
                         label: 'Detectors',
-                        children: this.renderDetectorBlock(),
+
                     }, {
                         key: 'trackers',
                         label: 'Trackers',
-                        children: (
-                            <>
-                                {this.renderLabelBlock()}
-                                {this.renderTrackerBlock()}
-                            </>
-                        ),
+
                     }]}
                 />
             </div>
