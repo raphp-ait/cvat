@@ -119,7 +119,7 @@ function BrushTools(): React.ReactPortal | null {
         ACTIVATE_POLYGON_REMOVE_TOOL_STANDARD_CONTROLS: setPolygonRemoveTool,
     };
 
-    const [removeUnderlyingPixels, setRemoveUnderlyingPixels] = useState(false);
+    const [removeUnderlyingPixels, setRemoveUnderlyingPixels] = useState(true);
     const dragBar = useDraggable(
         (): number[] => {
             const [element] = window.document.getElementsByClassName('cvat-brush-tools-toolbox');
