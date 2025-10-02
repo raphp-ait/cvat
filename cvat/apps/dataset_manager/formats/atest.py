@@ -833,183 +833,183 @@ def create_xml_dumper(file_object):
     return XmlAnnotationWriter(file_object)
 
 
-def dump_as_cvat_annotation(dumper, annotations):
+def dump_as_cvat_annotation(dumper, annotations, frame_annotation):
     dumper.open_root()
     dumper.add_meta(annotations.meta)
 
-    for frame_annotation in annotations.group_by_frame(include_empty=True):
-        frame_id = frame_annotation.frame
-        image_attrs = OrderedDict([("id", str(frame_id)), ("name", frame_annotation.name)])
-        if isinstance(annotations, ProjectData):
-            image_attrs.update(
-                OrderedDict(
-                    [
-                        ("subset", frame_annotation.subset),
-                        ("task_id", str(frame_annotation.task_id)),
-                    ]
-                )
-            )
+
+    frame_id = frame_annotation.frame
+    image_attrs = OrderedDict([("id", str(frame_id)), ("name", frame_annotation.name)])
+    if isinstance(annotations, ProjectData):
         image_attrs.update(
             OrderedDict(
-                [("width", str(frame_annotation.width)), ("height", str(frame_annotation.height))]
+                [
+                    ("subset", frame_annotation.subset),
+                    ("task_id", str(frame_annotation.task_id)),
+                ]
             )
         )
-        dumper.open_image(image_attrs)
+    image_attrs.update(
+        OrderedDict(
+            [("width", str(frame_annotation.width)), ("height", str(frame_annotation.height))]
+        )
+    )
+    dumper.open_image(image_attrs)
 
-        def dump_labeled_shapes(shapes, is_skeleton=False):
-            for shape in shapes:
-                dump_data = OrderedDict([("label", shape.label), ("source", shape.source)])
-                if is_skeleton:
-                    dump_data.update(OrderedDict([("outside", str(int(shape.outside)))]))
+    def dump_labeled_shapes(shapes, is_skeleton=False):
+        for shape in shapes:
+            dump_data = OrderedDict([("label", shape.label), ("source", shape.source)])
+            if is_skeleton:
+                dump_data.update(OrderedDict([("outside", str(int(shape.outside)))]))
 
-                if shape.type != "skeleton":
-                    dump_data.update(OrderedDict([("occluded", str(int(shape.occluded)))]))
+            if shape.type != "skeleton":
+                dump_data.update(OrderedDict([("occluded", str(int(shape.occluded)))]))
 
-                if shape.type == "rectangle":
-                    dump_data.update(
-                        OrderedDict(
-                            [
-                                ("xtl", "{:.2f}".format(shape.points[0])),
-                                ("ytl", "{:.2f}".format(shape.points[1])),
-                                ("xbr", "{:.2f}".format(shape.points[2])),
-                                ("ybr", "{:.2f}".format(shape.points[3])),
-                            ]
-                        )
+            if shape.type == "rectangle":
+                dump_data.update(
+                    OrderedDict(
+                        [
+                            ("xtl", "{:.2f}".format(shape.points[0])),
+                            ("ytl", "{:.2f}".format(shape.points[1])),
+                            ("xbr", "{:.2f}".format(shape.points[2])),
+                            ("ybr", "{:.2f}".format(shape.points[3])),
+                        ]
                     )
+                )
 
-                    if shape.rotation:
-                        dump_data.update(
-                            OrderedDict([("rotation", "{:.2f}".format(shape.rotation))])
-                        )
-                elif shape.type == "ellipse":
+                if shape.rotation:
                     dump_data.update(
-                        OrderedDict(
-                            [
-                                ("cx", "{:.2f}".format(shape.points[0])),
-                                ("cy", "{:.2f}".format(shape.points[1])),
-                                ("rx", "{:.2f}".format(shape.points[2] - shape.points[0])),
-                                ("ry", "{:.2f}".format(shape.points[1] - shape.points[3])),
-                            ]
-                        )
+                        OrderedDict([("rotation", "{:.2f}".format(shape.rotation))])
                     )
+            elif shape.type == "ellipse":
+                dump_data.update(
+                    OrderedDict(
+                        [
+                            ("cx", "{:.2f}".format(shape.points[0])),
+                            ("cy", "{:.2f}".format(shape.points[1])),
+                            ("rx", "{:.2f}".format(shape.points[2] - shape.points[0])),
+                            ("ry", "{:.2f}".format(shape.points[1] - shape.points[3])),
+                        ]
+                    )
+                )
 
-                    if shape.rotation:
-                        dump_data.update(
-                            OrderedDict([("rotation", "{:.2f}".format(shape.rotation))])
-                        )
-                elif shape.type == "cuboid":
+                if shape.rotation:
                     dump_data.update(
-                        OrderedDict(
-                            [
-                                ("xtl1", "{:.2f}".format(shape.points[0])),
-                                ("ytl1", "{:.2f}".format(shape.points[1])),
-                                ("xbl1", "{:.2f}".format(shape.points[2])),
-                                ("ybl1", "{:.2f}".format(shape.points[3])),
-                                ("xtr1", "{:.2f}".format(shape.points[4])),
-                                ("ytr1", "{:.2f}".format(shape.points[5])),
-                                ("xbr1", "{:.2f}".format(shape.points[6])),
-                                ("ybr1", "{:.2f}".format(shape.points[7])),
-                                ("xtl2", "{:.2f}".format(shape.points[8])),
-                                ("ytl2", "{:.2f}".format(shape.points[9])),
-                                ("xbl2", "{:.2f}".format(shape.points[10])),
-                                ("ybl2", "{:.2f}".format(shape.points[11])),
-                                ("xtr2", "{:.2f}".format(shape.points[12])),
-                                ("ytr2", "{:.2f}".format(shape.points[13])),
-                                ("xbr2", "{:.2f}".format(shape.points[14])),
-                                ("ybr2", "{:.2f}".format(shape.points[15])),
-                            ]
-                        )
+                        OrderedDict([("rotation", "{:.2f}".format(shape.rotation))])
                     )
-                elif shape.type == "mask":
-                    dump_data.update(
-                        OrderedDict(
-                            [
-                                ("rle", f"{list(int (v) for v in shape.points[:-4])}"[1:-1]),
-                                ("left", f"{int(shape.points[-4])}"),
-                                ("top", f"{int(shape.points[-3])}"),
-                                ("width", f"{int(shape.points[-2] - shape.points[-4]) + 1}"),
-                                ("height", f"{int(shape.points[-1] - shape.points[-3]) + 1}"),
-                            ]
-                        )
+            elif shape.type == "cuboid":
+                dump_data.update(
+                    OrderedDict(
+                        [
+                            ("xtl1", "{:.2f}".format(shape.points[0])),
+                            ("ytl1", "{:.2f}".format(shape.points[1])),
+                            ("xbl1", "{:.2f}".format(shape.points[2])),
+                            ("ybl1", "{:.2f}".format(shape.points[3])),
+                            ("xtr1", "{:.2f}".format(shape.points[4])),
+                            ("ytr1", "{:.2f}".format(shape.points[5])),
+                            ("xbr1", "{:.2f}".format(shape.points[6])),
+                            ("ybr1", "{:.2f}".format(shape.points[7])),
+                            ("xtl2", "{:.2f}".format(shape.points[8])),
+                            ("ytl2", "{:.2f}".format(shape.points[9])),
+                            ("xbl2", "{:.2f}".format(shape.points[10])),
+                            ("ybl2", "{:.2f}".format(shape.points[11])),
+                            ("xtr2", "{:.2f}".format(shape.points[12])),
+                            ("ytr2", "{:.2f}".format(shape.points[13])),
+                            ("xbr2", "{:.2f}".format(shape.points[14])),
+                            ("ybr2", "{:.2f}".format(shape.points[15])),
+                        ]
                     )
-                elif shape.type != "skeleton":
-                    dump_data.update(
-                        OrderedDict(
-                            [
-                                (
-                                    "points",
-                                    ";".join(
-                                        (
-                                            ",".join(("{:.2f}".format(x), "{:.2f}".format(y)))
-                                            for x, y in pairwise(shape.points)
-                                        )
-                                    ),
+                )
+            elif shape.type == "mask":
+                dump_data.update(
+                    OrderedDict(
+                        [
+                            ("rle", f"{list(int (v) for v in shape.points[:-4])}"[1:-1]),
+                            ("left", f"{int(shape.points[-4])}"),
+                            ("top", f"{int(shape.points[-3])}"),
+                            ("width", f"{int(shape.points[-2] - shape.points[-4]) + 1}"),
+                            ("height", f"{int(shape.points[-1] - shape.points[-3]) + 1}"),
+                        ]
+                    )
+                )
+            elif shape.type != "skeleton":
+                dump_data.update(
+                    OrderedDict(
+                        [
+                            (
+                                "points",
+                                ";".join(
+                                    (
+                                        ",".join(("{:.2f}".format(x), "{:.2f}".format(y)))
+                                        for x, y in pairwise(shape.points)
+                                    )
                                 ),
-                            ]
-                        )
+                            ),
+                        ]
                     )
+                )
 
-                if not is_skeleton:
-                    dump_data["z_order"] = str(shape.z_order)
-                if shape.group:
-                    dump_data["group_id"] = str(shape.group)
+            if not is_skeleton:
+                dump_data["z_order"] = str(shape.z_order)
+            if shape.group:
+                dump_data["group_id"] = str(shape.group)
 
-                if shape.type == "rectangle":
-                    dumper.open_box(dump_data)
-                elif shape.type == "ellipse":
-                    dumper.open_ellipse(dump_data)
-                elif shape.type == "polygon":
-                    dumper.open_polygon(dump_data)
-                elif shape.type == "polyline":
-                    dumper.open_polyline(dump_data)
-                elif shape.type == "points":
-                    dumper.open_points(dump_data)
-                elif shape.type == "mask":
-                    dumper.open_mask(dump_data)
-                elif shape.type == "cuboid":
-                    dumper.open_cuboid(dump_data)
-                elif shape.type == "skeleton":
-                    dumper.open_skeleton(dump_data)
-                    dump_labeled_shapes(shape.elements, is_skeleton=True)
-                else:
-                    raise NotImplementedError("unknown shape type")
+            if shape.type == "rectangle":
+                dumper.open_box(dump_data)
+            elif shape.type == "ellipse":
+                dumper.open_ellipse(dump_data)
+            elif shape.type == "polygon":
+                dumper.open_polygon(dump_data)
+            elif shape.type == "polyline":
+                dumper.open_polyline(dump_data)
+            elif shape.type == "points":
+                dumper.open_points(dump_data)
+            elif shape.type == "mask":
+                dumper.open_mask(dump_data)
+            elif shape.type == "cuboid":
+                dumper.open_cuboid(dump_data)
+            elif shape.type == "skeleton":
+                dumper.open_skeleton(dump_data)
+                dump_labeled_shapes(shape.elements, is_skeleton=True)
+            else:
+                raise NotImplementedError("unknown shape type")
 
-                for attr in shape.attributes:
-                    dumper.add_attribute(OrderedDict([("name", attr.name), ("value", attr.value)]))
-
-                if shape.type == "rectangle":
-                    dumper.close_box()
-                elif shape.type == "ellipse":
-                    dumper.close_ellipse()
-                elif shape.type == "polygon":
-                    dumper.close_polygon()
-                elif shape.type == "polyline":
-                    dumper.close_polyline()
-                elif shape.type == "points":
-                    dumper.close_points()
-                elif shape.type == "cuboid":
-                    dumper.close_cuboid()
-                elif shape.type == "mask":
-                    dumper.close_mask()
-                elif shape.type == "skeleton":
-                    dumper.close_skeleton()
-                else:
-                    raise NotImplementedError("unknown shape type")
-
-        dump_labeled_shapes(frame_annotation.labeled_shapes)
-
-        for tag in frame_annotation.tags:
-            tag_data = OrderedDict([("label", tag.label), ("source", tag.source)])
-            if tag.group:
-                tag_data["group_id"] = str(tag.group)
-            dumper.open_tag(tag_data)
-
-            for attr in tag.attributes:
+            for attr in shape.attributes:
                 dumper.add_attribute(OrderedDict([("name", attr.name), ("value", attr.value)]))
 
-            dumper.close_tag()
+            if shape.type == "rectangle":
+                dumper.close_box()
+            elif shape.type == "ellipse":
+                dumper.close_ellipse()
+            elif shape.type == "polygon":
+                dumper.close_polygon()
+            elif shape.type == "polyline":
+                dumper.close_polyline()
+            elif shape.type == "points":
+                dumper.close_points()
+            elif shape.type == "cuboid":
+                dumper.close_cuboid()
+            elif shape.type == "mask":
+                dumper.close_mask()
+            elif shape.type == "skeleton":
+                dumper.close_skeleton()
+            else:
+                raise NotImplementedError("unknown shape type")
 
-        dumper.close_image()
+    dump_labeled_shapes(frame_annotation.labeled_shapes)
+
+    for tag in frame_annotation.tags:
+        tag_data = OrderedDict([("label", tag.label), ("source", tag.source)])
+        if tag.group:
+            tag_data["group_id"] = str(tag.group)
+        dumper.open_tag(tag_data)
+
+        for attr in tag.attributes:
+            dumper.add_attribute(OrderedDict([("name", attr.name), ("value", attr.value)]))
+
+        dumper.close_tag()
+
+    dumper.close_image()
     dumper.close_root()
 
 
@@ -1551,10 +1551,10 @@ def load_anno(file_object, annotations):
             el.clear()
 
 
-def dump_task_or_job_anno(dst_file, instance_data, callback):
+def dump_task_or_job_anno(dst_file, instance_data, callback, frame_annotation):
     dumper = create_xml_dumper(dst_file)
     dumper.open_document()
-    callback(dumper, instance_data)
+    callback(dumper, instance_data, frame_annotation)
     dumper.close_document()
 
 
@@ -1598,11 +1598,38 @@ def dump_media_files(
 
 
 def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_images=False):
-    with open(osp.join(temp_dir, "annotations.xml"), "wb") as f:
-        dump_task_or_job_anno(f, instance_data, anno_callback)
 
-    if save_images:
-        dump_media_files(instance_data, osp.join(temp_dir, "images"))
+    frame_provider = make_frame_provider(instance_data.db_instance)
+
+    # ext = ""
+    # if instance_data.meta[instance_data.META_FIELD]["mode"] == "interpolation":
+    #     ext = frame_provider.VIDEO_FRAME_EXT
+
+    frames = frame_provider.iterate_frames(
+        start_frame=instance_data.start,
+        stop_frame=instance_data.stop,
+        quality=FrameQuality.ORIGINAL,
+        out_type=FrameOutputType.BUFFER,
+    )
+    included_frames = instance_data.get_included_frames()
+
+    for frame_annotation, frame_id, frame in zip(instance_data.group_by_frame(include_empty=True), instance_data.rel_range, frames):
+        # Create frame-specific directory using frame name (without extension)
+        frame_name_base = osp.splitext(frame_annotation.name)[0]
+        frame_dir = osp.join(temp_dir, frame_name_base)
+        os.makedirs(frame_dir, exist_ok=True)
+        with open(osp.join(frame_dir, "annotations.xml"), "wb") as f:
+            dump_task_or_job_anno(f, instance_data, anno_callback, frame_annotation)
+
+        if save_images:
+            if frame_id not in included_frames:
+                continue
+            frame_name = instance_data.frame_info[frame_id]["path"]
+            img_path = osp.join(frame_dir, frame_name)
+            
+            os.makedirs(osp.dirname(img_path), exist_ok=True)
+            with open(img_path, "wb") as f:
+                f.write(frame.data.getvalue())
 
     make_zip_archive(temp_dir, dst_file)
 
@@ -1627,7 +1654,7 @@ def _export_project(
     make_zip_archive(temp_dir, dst_file)
 
 
-@exporter(name="CVAT for video", ext="ZIP", version="1.1")
+@exporter(name="CVAT Custom Video", ext="ZIP", version="1.1")
 def _export_video(dst_file, temp_dir, instance_data, save_images=False):
     if isinstance(instance_data, ProjectData):
         _export_project(
@@ -1647,7 +1674,7 @@ def _export_video(dst_file, temp_dir, instance_data, save_images=False):
         )
 
 
-@exporter(name="CVAT for images", ext="ZIP", version="1.1")
+@exporter(name="CVAT Custom Format", ext="ZIP", version="1.1")
 def _export_images(dst_file, temp_dir, instance_data, save_images=False):
     if isinstance(instance_data, ProjectData):
         _export_project(
@@ -1667,7 +1694,7 @@ def _export_images(dst_file, temp_dir, instance_data, save_images=False):
         )
 
 
-@importer(name="CVAT", ext="XML, ZIP", version="1.1")
+@importer(name="CVAT Custom", ext="XML, ZIP", version="1.1")
 def _import(src_file, temp_dir, instance_data, load_data_callback=None, **kwargs):
     is_zip = zipfile.is_zipfile(src_file)
     src_file.seek(0)
@@ -1675,8 +1702,8 @@ def _import(src_file, temp_dir, instance_data, load_data_callback=None, **kwargs
         zipfile.ZipFile(src_file).extractall(temp_dir)
 
         if isinstance(instance_data, ProjectData):
-            detect_dataset(temp_dir, format_name="cvat", importer=_CvatImporter)
-            dataset = Dataset.import_from(temp_dir, "cvat", env=dm_env)
+            detect_dataset(temp_dir, format_name="cvat_custom", importer=_CvatImporter)
+            dataset = Dataset.import_from(temp_dir, "cvat_custom", env=dm_env)
             if load_data_callback is not None:
                 load_data_callback(dataset, instance_data)
             import_dm_annotations(dataset, instance_data)
