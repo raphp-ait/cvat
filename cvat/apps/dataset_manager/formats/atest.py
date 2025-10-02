@@ -10,6 +10,8 @@ from collections import OrderedDict
 from glob import glob
 from io import BufferedWriter
 from typing import Callable, Union
+import cv2
+import numpy as np
 
 from datumaro.components.annotation import (
     AnnotationType,
@@ -644,6 +646,258 @@ dm_env.importers.register("cvat", CvatImporter)
 def pairwise(iterable):
     a = iter(iterable)
     return zip(a, a)
+
+
+def hex_to_rgb(hex_color: str) -> list:
+    """
+    Converts a hex color to rgb
+
+    Args:
+        hex_color (str): Hex color string. i.e. '#112233'
+
+    Returns:
+        List[int]: RGB color list. i.e. [17, 34, 51]
+    """
+    return [int(hex_color[i:i+2], 16) for i in (1, 3, 5)]
+
+
+def get_polygon_coordinates(points: list) -> np.array:
+    """
+    Get a numpy array with integer coordinates from a list of floats as
+    returned by CVAT, where the first element is taken from the even indices
+    and the second element from the uneven indices.
+
+    Args:
+        points (list): list of floats
+    Returns:
+        np.array: numpy array with integer coordinates
+    """
+    return np.array([[int(round(point[0])), int(round(point[1]))] for point in zip(points[0::2], points[1::2])])
+
+
+def get_mask_coordinates(rle_list: list) -> tuple:
+    """
+    Get a tuple of numpy arrays with integer coordinates from a run-length
+    encoded list of floats as returned by CVAT. The position of the mask is
+    encoded in the last four elements of the list.
+    """
+    # get global coordinates of mask
+    left, top, right, bottom = rle_list[-4:]
+    left, top, right, bottom = int(left), int(top), int(right), int(bottom)
+    width = right - left + 1
+
+    # get cumulative rle lists of start and endpoints
+    cumulative_rle_list = np.cumsum(rle_list[:-4]).astype(int).tolist()
+    annotation_start = cumulative_rle_list[0:-1:2]
+    annotation_end = cumulative_rle_list[1::2]
+
+    # get list of all rle pixels in mask
+    cumulative_rle_list = [[*range(i,j)] for i, j in zip(annotation_start, annotation_end)]
+    cumulative_rle_list = np.array([item for sublist in cumulative_rle_list for item in sublist])
+
+    # convert rle list to coordinates
+    y_coordinates = cumulative_rle_list // width + top
+    x_coordinates = cumulative_rle_list % width + left
+
+    return y_coordinates, x_coordinates
+
+
+def get_ellipse_coordinates(points: list) -> tuple:
+    centroid = (int(round(points[0])), int(round(points[1])))
+    axes = (int(round(points[2] - points[0])), int(round(points[1] - points[3])))
+    return centroid, axes
+
+
+def get_points_coordinates(points: list) -> tuple:
+    """
+    Convert list of points to pixel x and y coordinates.
+
+    Args:
+        points (list): List of point coordinates
+
+    Returns:
+        tuple: x, y coordinates
+    """
+    return int(round(points[0])), int(round(points[1]))
+
+
+def draw_mask_from_cvat_annotation(mask: np.array, annotation: dict, color: tuple):
+    """
+    Generate a mask from a CVAT annotation.
+
+    Args:
+        mask (np.array): The mask to be drawn on.
+        annotation (dict): The CVAT annotation containing the shape type and points.
+        color (tuple): RGB color tuple for the mask.
+
+    Returns:
+        None
+    """
+    if str(annotation['type']) == 'polygon':
+        points = get_polygon_coordinates(annotation['points'])
+        cv2.fillPoly(mask, pts=[points], color=color)
+
+    elif str(annotation['type']) == 'mask':
+        y_coordinates, x_coordinates = get_mask_coordinates(annotation['points'])
+        mask[y_coordinates, x_coordinates] = color
+
+    elif str(annotation['type']) == 'ellipse':
+        centroid, axes = get_ellipse_coordinates(annotation['points'])
+        cv2.ellipse(mask, centroid, axes,
+                    angle=annotation.get('rotation', 0),
+                    startAngle=0,
+                    endAngle=360,
+                    color=color,
+                    thickness=-1)
+
+    elif str(annotation['type']) == 'points':
+        x_coordinates, y_coordinates = get_points_coordinates(annotation['points'])
+        cv2.circle(mask, (x_coordinates, y_coordinates), radius=3, color=color, thickness=-1)
+
+    elif str(annotation['type']) == 'polyline':
+        points = get_polygon_coordinates(annotation['points'])
+        cv2.polylines(mask, pts=[points], color=color, isClosed=False, thickness=1)
+
+    elif str(annotation['type']) == 'rectangle':
+        points = annotation['points']
+        pt1 = (int(round(points[0])), int(round(points[1])))
+        pt2 = (int(round(points[2])), int(round(points[3])))
+        cv2.rectangle(mask, pt1, pt2, color=color, thickness=-1)
+
+    else:
+        print(f"Warning: Shape type {annotation['type']} not implemented for mask generation.")
+
+
+def extract_labels_from_meta(meta_dict: dict) -> dict:
+    """
+    Extract label name to color mapping from annotations meta.
+    
+    Args:
+        meta_dict (dict): The meta dictionary from annotations
+        
+    Returns:
+        dict: Label name to hex color mapping
+    """
+    labels = {}
+    # Navigate through the meta structure to find labels
+    # Check both 'task' and 'job' keys since the structure can vary
+    for key in ['task', 'job']:
+        if key in meta_dict:
+            data = meta_dict[key]
+            if 'labels' in data:
+                label_list = data['labels']
+                # Handle list of tuples format: [('label', OrderedDict([('name', '...'), ('color', '...')]))]
+                if isinstance(label_list, list):
+                    for item in label_list:
+                        if isinstance(item, tuple) and len(item) == 2 and item[0] == 'label':
+                            label_data = item[1]
+                            if 'name' in label_data and 'color' in label_data:
+                                labels[label_data['name']] = label_data['color']
+            break  # Found the data, no need to check other keys
+    
+    return labels
+
+
+def create_mask_from_frame_annotation(frame_annotation, labels_dict: dict, image_size: tuple) -> np.array:
+    """
+    Create RGB mask from frame annotation.
+    
+    Args:
+        frame_annotation: Frame annotation object with labeled_shapes
+        labels_dict (dict): Label name to color mapping
+        image_size (tuple): (height, width) of the image
+        
+    Returns:
+        np.array: RGB mask
+    """
+    mask = np.zeros((*image_size, 3), dtype=np.uint8)
+    
+    for shape in frame_annotation.labeled_shapes:
+        label_name = shape.label
+        if label_name in labels_dict:
+            color = hex_to_rgb(labels_dict[label_name])
+            
+            # Convert shape to annotation format expected by drawing function
+            annotation = {
+                'type': shape.type,
+                'points': shape.points,
+                'rotation': getattr(shape, 'rotation', 0)
+            }
+            
+            draw_mask_from_cvat_annotation(mask, annotation, tuple(color))
+    
+    return mask
+
+
+def create_overlay_image(original_image: np.array, mask: np.array, alpha: float = 0.5) -> np.array:
+    """
+    Create overlay of original image with mask.
+    
+    Args:
+        original_image (np.array): Original image in BGR format
+        mask (np.array): RGB mask
+        alpha (float): Transparency factor for mask overlay
+        
+    Returns:
+        np.array: Overlay image in BGR format
+    """
+    # Convert mask from RGB to BGR for OpenCV
+    mask_bgr = cv2.cvtColor(mask, cv2.COLOR_RGB2BGR)
+    
+    # Create overlay using cv2.addWeighted
+    overlay = cv2.addWeighted(original_image, 1.0 - alpha, mask_bgr, alpha, 0)
+    
+    return overlay
+
+
+def calculate_relative_distribution(mask: np.array, labels_dict: dict) -> dict:
+    """
+    Calculate relative distribution of label classes in mask as percentages.
+    Excludes black/background pixels from calculation.
+    
+    Args:
+        mask (np.array): RGB mask
+        labels_dict (dict): Label name to hex color mapping
+        
+    Returns:
+        dict: Label name to percentage mapping, sorted by percentage descending
+    """
+    # Convert labels_dict colors to RGB tuples for comparison
+    color_to_label = {}
+    for label, hex_color in labels_dict.items():
+        rgb_color = tuple(hex_to_rgb(hex_color))
+        color_to_label[rgb_color] = label
+    
+    # Count pixels for each color/label
+    label_counts = {}
+    total_labeled_pixels = 0
+    
+    # Get unique colors and their counts
+    mask_2d = mask.reshape(-1, 3)
+    unique_colors, counts = np.unique(mask_2d, axis=0, return_counts=True)
+    
+    for color, count in zip(unique_colors, counts):
+        color_tuple = tuple(color)
+        # Skip black/background pixels (0,0,0)
+        if color_tuple == (0, 0, 0):
+            continue
+            
+        if color_tuple in color_to_label:
+            label = color_to_label[color_tuple]
+            label_counts[label] = count
+            total_labeled_pixels += count
+    
+    # Calculate percentages
+    if total_labeled_pixels == 0:
+        return {}
+    
+    relative_distribution = {}
+    for label, count in label_counts.items():
+        percentage = round((count / total_labeled_pixels) * 100, 2)
+        relative_distribution[label] = percentage
+    
+    # Sort by percentage descending
+    return dict(sorted(relative_distribution.items(), key=lambda x: x[1], reverse=True))
 
 
 def create_xml_dumper(file_object):
@@ -1613,11 +1867,15 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
     )
     included_frames = instance_data.get_included_frames()
 
+    # Extract labels from metadata
+    labels_dict = extract_labels_from_meta(instance_data.meta)
+
     for frame_annotation, frame_id, frame in zip(instance_data.group_by_frame(include_empty=True), instance_data.rel_range, frames):
         # Create frame-specific directory using frame name (without extension)
         frame_name_base = osp.splitext(frame_annotation.name)[0]
         frame_dir = osp.join(temp_dir, frame_name_base)
         os.makedirs(frame_dir, exist_ok=True)
+        
         with open(osp.join(frame_dir, "annotations.xml"), "wb") as f:
             dump_task_or_job_anno(f, instance_data, anno_callback, frame_annotation)
 
@@ -1630,6 +1888,25 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
             os.makedirs(osp.dirname(img_path), exist_ok=True)
             with open(img_path, "wb") as f:
                 f.write(frame.data.getvalue())
+
+            # Generate mask
+            image_size = (frame_annotation.height, frame_annotation.width)
+            mask = create_mask_from_frame_annotation(frame_annotation, labels_dict, image_size)
+            
+            # Save mask as PNG
+            mask_filename = f"{frame_name_base}_mask.png"
+            mask_path = osp.join(frame_dir, mask_filename)
+            cv2.imwrite(mask_path, cv2.cvtColor(mask, cv2.COLOR_RGB2BGR))
+            
+            # Create and save overlay
+            # Read the original image back as BGR for OpenCV
+            original_bgr = cv2.imdecode(np.frombuffer(frame.data.getvalue(), np.uint8), cv2.IMREAD_COLOR)
+            overlay = create_overlay_image(original_bgr, mask, alpha=0.5)
+            
+            # Save overlay as PNG
+            overlay_filename = f"{frame_name_base}_overlay.png"
+            overlay_path = osp.join(frame_dir, overlay_filename)
+            cv2.imwrite(overlay_path, overlay)
 
     make_zip_archive(temp_dir, dst_file)
 
