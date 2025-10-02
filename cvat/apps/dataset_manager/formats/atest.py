@@ -900,6 +900,167 @@ def calculate_relative_distribution(mask: np.array, labels_dict: dict) -> dict:
     return dict(sorted(relative_distribution.items(), key=lambda x: x[1], reverse=True))
 
 
+def add_legend_to_image(image: np.array, relative_distribution: dict, labels_dict: dict) -> np.array:
+    """
+    Add legend to image in bottom-right corner using OpenCV.
+    Legend takes up approximately 1/6 of image height.
+    
+    Args:
+        image (np.array): Image in BGR format
+        relative_distribution (dict): Label to percentage mapping
+        labels_dict (dict): Label name to hex color mapping
+        
+    Returns:
+        np.array: Image with legend embedded
+    """
+    if not relative_distribution:
+        return image.copy()
+    
+    img_with_legend = image.copy()
+    height, width = img_with_legend.shape[:2]
+    
+    # Calculate legend dimensions (1/6 of image height)
+    legend_height = height // 6
+    legend_width = width // 3  # Adjust width as needed
+    
+    # Calculate font scale based on image size (increased for better readability)
+    font_scale = max(0.6, min(1.5, height / 600))  # Increased from 0.3-0.8 to 0.6-1.5
+    font_thickness = max(1, int(height / 600))      # Adjusted thickness scaling
+    
+    # Legend positioning (bottom-right corner)
+    legend_x = width - legend_width - 10
+    legend_y = height - legend_height - 10
+    
+    # Create semi-transparent background for legend
+    overlay = img_with_legend.copy()
+    cv2.rectangle(overlay, (legend_x - 5, legend_y - 5), 
+                  (legend_x + legend_width + 5, legend_y + legend_height + 5), 
+                  (255, 255, 255), -1)
+    cv2.addWeighted(overlay, 0.8, img_with_legend, 0.2, 0, img_with_legend)
+    
+    # Add border around legend
+    cv2.rectangle(img_with_legend, (legend_x - 5, legend_y - 5), 
+                  (legend_x + legend_width + 5, legend_y + legend_height + 5), 
+                  (0, 0, 0), 1)
+    
+    # Calculate item spacing
+    num_items = len(relative_distribution)
+    if num_items == 0:
+        return img_with_legend
+        
+    item_height = legend_height // max(num_items, 1)
+    color_box_size = min(item_height - 4, int(font_scale * 20))
+    
+    # Draw legend items
+    y_offset = legend_y + 5
+    for i, (label, percentage) in enumerate(relative_distribution.items()):
+        if y_offset + item_height > height:
+            break  # Prevent going beyond image bounds
+            
+        # Get color for this label
+        if label in labels_dict:
+            hex_color = labels_dict[label]
+            rgb_color = hex_to_rgb(hex_color)
+            bgr_color = (rgb_color[2], rgb_color[1], rgb_color[0])  # Convert RGB to BGR
+            
+            # Draw color box
+            box_y = y_offset + (item_height - color_box_size) // 2
+            cv2.rectangle(img_with_legend, 
+                         (legend_x, box_y), 
+                         (legend_x + color_box_size, box_y + color_box_size), 
+                         bgr_color, -1)
+            cv2.rectangle(img_with_legend, 
+                         (legend_x, box_y), 
+                         (legend_x + color_box_size, box_y + color_box_size), 
+                         (0, 0, 0), 1)
+            
+            # Prepare text
+            text = f"{label}: {percentage}%"
+            text_x = legend_x + color_box_size + 5
+            text_y = y_offset + (item_height + color_box_size) // 2
+            
+            # Truncate text if too long
+            max_text_width = legend_width - color_box_size - 10
+            text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)[0]
+            
+            if text_size[0] > max_text_width and len(label) > 10:
+                # Truncate label if too long
+                truncated_label = label[:8] + ".."
+                text = f"{truncated_label}: {percentage}%"
+            
+            # Draw text
+            cv2.putText(img_with_legend, text, (text_x, text_y), 
+                       cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), font_thickness)
+        
+        y_offset += item_height
+    
+    return img_with_legend
+
+
+def create_side_by_side_comparison(original_bgr: np.array, mask_bgr: np.array, overlay_bgr: np.array, 
+                                 scale_factor: float = 0.3, padding: int = 20) -> np.array:
+    """
+    Create a side-by-side comparison image with original, mask, and overlay.
+    
+    Args:
+        original_bgr (np.array): Original image in BGR format
+        mask_bgr (np.array): Mask image in BGR format  
+        overlay_bgr (np.array): Overlay image in BGR format
+        scale_factor (float): Factor to downsize images (0.5 = half size)
+        padding (int): Padding between and around images in pixels
+        
+    Returns:
+        np.array: Side-by-side comparison image in BGR format
+    """
+    # Resize all images
+    height, width = original_bgr.shape[:2]
+    new_height = int(height * scale_factor)
+    new_width = int(width * scale_factor)
+    
+    original_resized = cv2.resize(original_bgr, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    mask_resized = cv2.resize(mask_bgr, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    overlay_resized = cv2.resize(overlay_bgr, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    
+    # Calculate dimensions for the composite image
+    composite_width = 3 * new_width + 4 * padding  # 3 images + 4 padding areas (left, between1, between2, right)
+    composite_height = new_height + 2 * padding    # 1 image height + top and bottom padding
+    
+    # Create white background
+    composite = np.full((composite_height, composite_width, 3), 255, dtype=np.uint8)
+    
+    # Calculate positions for each image
+    y_pos = padding
+    x_positions = [
+        padding,                           # Original image
+        padding + new_width + padding,     # Mask image  
+        padding + 2 * new_width + 2 * padding  # Overlay image
+    ]
+    
+    # Place images in the composite
+    composite[y_pos:y_pos + new_height, x_positions[0]:x_positions[0] + new_width] = original_resized
+    composite[y_pos:y_pos + new_height, x_positions[1]:x_positions[1] + new_width] = mask_resized
+    composite[y_pos:y_pos + new_height, x_positions[2]:x_positions[2] + new_width] = overlay_resized
+    
+    # Add labels below each image
+    font_scale = max(0.7, min(1.2, new_height / 800))  # Scale font with image size
+    font_thickness = max(1, int(new_height / 600))
+    font_color = (0, 0, 0)  # Black text
+    
+    labels = ["Original", "Mask", "Overlay"]
+    for i, (label, x_pos) in enumerate(zip(labels, x_positions)):
+        # Calculate text size and center it under the image
+        text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)[0]
+        text_x = x_pos + (new_width - text_size[0]) // 2
+        text_y = y_pos + new_height + padding // 2
+        
+        # Make sure text doesn't go outside the composite image
+        if text_y < composite_height - 5:
+            cv2.putText(composite, label, (text_x, text_y), 
+                       cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_color, font_thickness)
+    
+    return composite
+
+
 def create_xml_dumper(file_object):
     from xml.sax.saxutils import XMLGenerator
 
@@ -1893,20 +2054,39 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
             image_size = (frame_annotation.height, frame_annotation.width)
             mask = create_mask_from_frame_annotation(frame_annotation, labels_dict, image_size)
             
-            # Save mask as PNG
+            # Calculate relative distribution for legend
+            relative_distribution = calculate_relative_distribution(mask, labels_dict)
+            
+            # Convert mask to BGR for OpenCV processing
+            mask_bgr = cv2.cvtColor(mask, cv2.COLOR_RGB2BGR)
+            
+            # Add legend to mask
+            mask_with_legend = add_legend_to_image(mask_bgr, relative_distribution, labels_dict)
+            
+            # Save mask with legend as PNG
             mask_filename = f"{frame_name_base}_mask.png"
             mask_path = osp.join(frame_dir, mask_filename)
-            cv2.imwrite(mask_path, cv2.cvtColor(mask, cv2.COLOR_RGB2BGR))
+            cv2.imwrite(mask_path, mask_with_legend)
             
             # Create and save overlay
             # Read the original image back as BGR for OpenCV
             original_bgr = cv2.imdecode(np.frombuffer(frame.data.getvalue(), np.uint8), cv2.IMREAD_COLOR)
             overlay = create_overlay_image(original_bgr, mask, alpha=0.5)
             
-            # Save overlay as PNG
+            # Add legend to overlay
+            overlay_with_legend = add_legend_to_image(overlay, relative_distribution, labels_dict)
+            
+            # Save overlay with legend as PNG
             overlay_filename = f"{frame_name_base}_overlay.png"
             overlay_path = osp.join(frame_dir, overlay_filename)
-            cv2.imwrite(overlay_path, overlay)
+            cv2.imwrite(overlay_path, overlay_with_legend)
+            
+            # Create and save side-by-side comparison
+            comparison = create_side_by_side_comparison(original_bgr, mask_with_legend, overlay_with_legend, 
+                                                      scale_factor=0.3, padding=20)
+            comparison_filename = f"{frame_name_base}_comparison.png"
+            comparison_path = osp.join(frame_dir, comparison_filename)
+            cv2.imwrite(comparison_path, comparison)
 
     make_zip_archive(temp_dir, dst_file)
 
