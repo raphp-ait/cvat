@@ -6,6 +6,7 @@
 import os
 import os.path as osp
 import zipfile
+import hashlib
 from collections import OrderedDict
 from glob import glob
 from io import BufferedWriter
@@ -898,6 +899,184 @@ def calculate_relative_distribution(mask: np.array, labels_dict: dict) -> dict:
     
     # Sort by percentage descending
     return dict(sorted(relative_distribution.items(), key=lambda x: x[1], reverse=True))
+
+
+def generate_file_fingerprint(file_data: bytes) -> str:
+    """
+    Generate a file fingerprint (hash) from raw file data.
+    
+    Args:
+        file_data (bytes): Raw binary data of the file
+        
+    Returns:
+        str: SHA256 hash of the file data
+    """
+    return hashlib.sha256(file_data).hexdigest()
+
+
+def generate_visual_fingerprint(image: np.array, size: tuple = (8, 8)) -> str:
+    """
+    Generate a visual fingerprint based on image content.
+    Creates a perceptual hash by downsizing to grayscale and comparing to average.
+    
+    Args:
+        image (np.array): Image in BGR format
+        size (tuple): Size to downsize for hash calculation (default 8x8)
+        
+    Returns:
+        str: Hex string representing the visual fingerprint
+    """
+    # Convert to grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+    # Resize to small size
+    resized = cv2.resize(gray, size, interpolation=cv2.INTER_AREA)
+    
+    # Calculate average pixel value
+    avg = resized.mean()
+    
+    # Create binary hash: 1 if pixel > average, 0 if <= average
+    binary_hash = resized > avg
+    
+    # Convert to hex string
+    hash_string = ''.join(['1' if pixel else '0' for pixel in binary_hash.flatten()])
+    
+    # Convert binary string to hex
+    return format(int(hash_string, 2), 'x').zfill(len(hash_string) // 4)
+
+
+def create_manifest_xml(frame_annotation, frame_id, instance_data, frame_dir: str) -> str:
+    """
+    Create manifest XML file for a frame directory.
+    
+    Args:
+        frame_annotation: Frame annotation object
+        frame_id: Frame ID
+        instance_data: Instance data containing task/job information
+        frame_dir: Path to frame directory
+        
+    Returns:
+        str: Path to created manifest.xml file
+    """
+    from datetime import datetime
+    from xml.dom import minidom
+    
+    # Create XML document
+    doc = minidom.Document()
+    
+    # Root element
+    manifest = doc.createElement('manifest')
+    doc.appendChild(manifest)
+    
+    # Frame info section
+    frame_info = doc.createElement('frame_info')
+    manifest.appendChild(frame_info)
+    
+    frame_id_elem = doc.createElement('frame_id')
+    frame_id_elem.appendChild(doc.createTextNode(str(frame_id)))
+    frame_info.appendChild(frame_id_elem)
+    
+    frame_name_elem = doc.createElement('frame_name')
+    frame_name_elem.appendChild(doc.createTextNode(frame_annotation.name))
+    frame_info.appendChild(frame_name_elem)
+    
+    frame_name_base = osp.splitext(frame_annotation.name)[0]
+    directory_name_elem = doc.createElement('directory_name')
+    directory_name_elem.appendChild(doc.createTextNode(frame_name_base))
+    frame_info.appendChild(directory_name_elem)
+    
+    # Add task/job IDs if available
+    if hasattr(instance_data, 'db_instance'):
+        if hasattr(instance_data.db_instance, 'task_id'):
+            task_id_elem = doc.createElement('cvat_task_id')
+            task_id_elem.appendChild(doc.createTextNode(str(instance_data.db_instance.task_id)))
+            frame_info.appendChild(task_id_elem)
+        
+        if hasattr(instance_data.db_instance, 'id'):
+            job_id_elem = doc.createElement('cvat_job_id')
+            job_id_elem.appendChild(doc.createTextNode(str(instance_data.db_instance.id)))
+            frame_info.appendChild(job_id_elem)
+    
+    # Export info section
+    export_info = doc.createElement('export_info')
+    manifest.appendChild(export_info)
+    
+    timestamp_elem = doc.createElement('export_timestamp')
+    timestamp_elem.appendChild(doc.createTextNode(datetime.utcnow().isoformat() + 'Z'))
+    export_info.appendChild(timestamp_elem)
+    
+    format_elem = doc.createElement('export_format')
+    format_elem.appendChild(doc.createTextNode('CVAT Custom Format'))
+    export_info.appendChild(format_elem)
+    
+    version_elem = doc.createElement('export_version')
+    version_elem.appendChild(doc.createTextNode('1.1'))
+    export_info.appendChild(version_elem)
+    
+    source_elem = doc.createElement('source')
+    source_elem.appendChild(doc.createTextNode('CVAT Server'))
+    export_info.appendChild(source_elem)
+    
+    # Files section
+    files_section = doc.createElement('files')
+    manifest.appendChild(files_section)
+    
+    # Define expected files (for now, keeping original format)
+    expected_files = [
+        ('annotations.xml', 'annotations'),
+        (f'{frame_name_base}_mask.png', 'visualization'),
+        (f'{frame_name_base}_overlay.png', 'visualization'),
+        (f'{frame_name_base}_comparison.png', 'comparison')
+    ]
+    
+    # Add original image file if it exists
+    frame_name = instance_data.frame_info[frame_id]["path"] if frame_id in instance_data.frame_info else frame_annotation.name
+    expected_files.insert(1, (frame_name, 'source_image'))
+    
+    for filename, file_type in expected_files:
+        file_elem = doc.createElement('file')
+        file_elem.setAttribute('name', filename)
+        file_elem.setAttribute('type', file_type)
+        
+        # Try to get actual file size if file exists
+        file_path = osp.join(frame_dir, filename)
+        if osp.exists(file_path):
+            file_size = osp.getsize(file_path)
+            file_elem.setAttribute('size', str(file_size))
+        
+        files_section.appendChild(file_elem)
+    
+    # Image summary section
+    image_summary = doc.createElement('image_summary')
+    manifest.appendChild(image_summary)
+    
+    dimensions_elem = doc.createElement('dimensions')
+    dimensions_elem.setAttribute('width', str(frame_annotation.width))
+    dimensions_elem.setAttribute('height', str(frame_annotation.height))
+    image_summary.appendChild(dimensions_elem)
+    
+    format_elem = doc.createElement('format')
+    # Extract format from filename extension
+    file_ext = osp.splitext(frame_annotation.name)[1].upper().lstrip('.')
+    format_elem.appendChild(doc.createTextNode(file_ext))
+    image_summary.appendChild(format_elem)
+    
+    annotations_count_elem = doc.createElement('annotations_count')
+    annotations_count_elem.appendChild(doc.createTextNode(str(len(frame_annotation.labeled_shapes))))
+    image_summary.appendChild(annotations_count_elem)
+    
+    # Count unique materials/labels
+    unique_labels = set(shape.label for shape in frame_annotation.labeled_shapes)
+    materials_detected_elem = doc.createElement('materials_detected')
+    materials_detected_elem.appendChild(doc.createTextNode(str(len(unique_labels))))
+    image_summary.appendChild(materials_detected_elem)
+    
+    # Write manifest file
+    manifest_path = osp.join(frame_dir, 'manifest.xml')
+    with open(manifest_path, 'w', encoding='utf-8') as f:
+        f.write(doc.toprettyxml(indent='  ', encoding=None))
+    
+    return manifest_path
 
 
 def add_legend_to_image(image: np.array, relative_distribution: dict, labels_dict: dict) -> np.array:
@@ -2039,6 +2218,9 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
         
         with open(osp.join(frame_dir, "annotations.xml"), "wb") as f:
             dump_task_or_job_anno(f, instance_data, anno_callback, frame_annotation)
+        
+        # Create manifest file
+        create_manifest_xml(frame_annotation, frame_id, instance_data, frame_dir)
 
         if save_images:
             if frame_id not in included_frames:
@@ -2087,6 +2269,20 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
             comparison_filename = f"{frame_name_base}_comparison.png"
             comparison_path = osp.join(frame_dir, comparison_filename)
             cv2.imwrite(comparison_path, comparison)
+            
+            # Generate fingerprints
+            file_fingerprint = generate_file_fingerprint(frame.data.getvalue())
+            visual_fingerprint = generate_visual_fingerprint(original_bgr)
+            
+            # Save fingerprints to text file
+            fingerprints_filename = f"{frame_name_base}_fingerprints.txt"
+            fingerprints_path = osp.join(frame_dir, fingerprints_filename)
+            with open(fingerprints_path, "w") as fp_file:
+                fp_file.write(f"File fingerprint: {file_fingerprint}\n")
+                fp_file.write(f"Visual fingerprint: {visual_fingerprint}\n")
+                fp_file.write(f"Frame ID: {frame_id}\n")
+                fp_file.write(f"Frame name: {frame_annotation.name}\n")
+                fp_file.write(f"Image dimensions: {frame_annotation.width}x{frame_annotation.height}\n")
 
     make_zip_archive(temp_dir, dst_file)
 
