@@ -43,6 +43,7 @@ from cvat.apps.dataset_manager.bindings import (
 )
 from cvat.apps.dataset_manager.util import make_zip_archive
 from cvat.apps.engine.frame_provider import FrameOutputType, FrameQuality, make_frame_provider
+from cvat.apps.engine.models import JobType
 
 from .registry import dm_env, exporter, importer
 
@@ -2314,6 +2315,162 @@ def dump_media_files(
 
 
 def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_images=False):
+    """
+    Experimental export function that groups frames by jobs and exports original images
+    in separate subdirectories for each job.
+    """
+    from cvat.apps.dataset_manager.task import JobAnnotation
+    import datetime
+    
+    # Create log file for debugging
+    log_file_path = osp.join(temp_dir, "export_debug.log")
+    
+    def log_message(message):
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_file_path, "a", encoding="utf-8") as log_file:
+            log_file.write(f"[{timestamp}] {message}\n")
+    
+    log_message("=== Starting experimental export ===")
+    log_message(f"instance_data type: {type(instance_data)}")
+    log_message(f"save_images: {save_images}")
+    log_message(f"temp_dir: {temp_dir}")
+    
+    # Helper function to get jobs for different instance types
+    def get_jobs_for_instance(instance_data):
+        log_message("Entering get_jobs_for_instance")
+        if isinstance(instance_data, JobData):
+            log_message("Processing JobData instance")
+            # Already a single job
+            frames = list(instance_data.group_by_frame())
+            log_message(f"JobData - job_id: {instance_data.db_instance.id}, frames count: {len(frames)}")
+            yield {
+                'job_id': instance_data.db_instance.id,
+                'job_data': instance_data,
+                'frames': frames
+            }
+        elif isinstance(instance_data, TaskData):
+            log_message("Processing TaskData instance")
+            # Get actual jobs for this task
+            task = instance_data.db_instance
+            log_message(f"Task ID: {task.id}")
+            
+            segments = task.segment_set.all().prefetch_related('job_set')
+            log_message(f"Found {len(segments)} segments")
+            
+            for segment in segments:
+                log_message(f"Processing segment {segment.id}")
+                jobs = segment.job_set.all()
+                log_message(f"Segment has {len(jobs)} jobs")
+                
+                for job_instance in jobs:
+                    log_message(f"Processing job {job_instance.id}, type: {getattr(job_instance, 'type', 'NO_TYPE')}")
+                    
+                    if hasattr(job_instance, 'type') and job_instance.type == JobType.ANNOTATION:
+                        log_message(f"Job {job_instance.id} is ANNOTATION type")
+                        # Create JobData for this specific job
+                        try:
+                            job_annotation = JobAnnotation(job_instance.id)  # Use job ID instead of job instance
+                            job_annotation.init_from_db()
+                            job_data = JobData(job_annotation.ir_data, job_instance)
+                            
+                            frames = list(job_data.group_by_frame())
+                            log_message(f"Successfully created JobData for job {job_instance.id}, frames: {len(frames)}")
+                            
+                            yield {
+                                'job_id': job_instance.id,
+                                'job_data': job_data,
+                                'frames': frames
+                            }
+                        except Exception as e:
+                            log_message(f"ERROR: Could not process job {job_instance.id}: {str(e)}")
+                            continue
+                    else:
+                        log_message(f"Job {job_instance.id} is not ANNOTATION type, skipping")
+        else:
+            log_message(f"ProjectData grouping by jobs not implemented in experimental function")
+            return
+
+    log_message("Starting job processing")
+    job_count = 0
+    
+    # Process each job
+    for job_info in get_jobs_for_instance(instance_data):
+        job_count += 1
+        job_id = job_info['job_id']
+        job_data = job_info['job_data']
+        frames_data = job_info['frames']
+        
+        log_message(f"=== Processing job {job_count}: {job_id} ===")
+        log_message(f"Frames data length: {len(frames_data)}")
+        
+        # Create job-specific directory
+        job_dir = osp.join(temp_dir, f"job_{job_id}")
+        os.makedirs(job_dir, exist_ok=True)
+        log_message(f"Created directory: {job_dir}")
+        
+        if save_images and frames_data:
+            log_message("save_images=True and frames_data exists, processing frames")
+            
+            try:
+                # Get frame provider for this job
+                frame_provider = make_frame_provider(job_data.db_instance)
+                log_message(f"Created frame provider for job {job_id}")
+                
+                frames = frame_provider.iterate_frames(
+                    start_frame=job_data.start,
+                    stop_frame=job_data.stop,
+                    quality=FrameQuality.ORIGINAL,
+                    out_type=FrameOutputType.BUFFER,
+                )
+                log_message(f"Got frame iterator for job {job_id}, start: {job_data.start}, stop: {job_data.stop}")
+                
+                included_frames = job_data.get_included_frames()
+                log_message(f"Included frames for job {job_id}: {len(included_frames)} frames")
+                log_message(f"Included frame IDs: {list(included_frames)}")
+                
+                frame_count = 0
+                # Process frames for this job
+                for frame_annotation, frame_id, frame in zip(job_data.group_by_frame(include_empty=True), job_data.rel_range, frames):
+                    frame_count += 1
+                    log_message(f"Processing frame {frame_count}: frame_id={frame_id}")
+                    
+                    if frame_id not in included_frames:
+                        log_message(f"Frame {frame_id} not in included_frames, skipping")
+                        continue
+                    
+                    frame_name = job_data.frame_info[frame_id]["path"]
+                    log_message(f"Frame {frame_id} name: {frame_name}")
+                    
+                    # Save original image directly in job directory
+                    img_path = osp.join(job_dir, frame_name)
+                    os.makedirs(osp.dirname(img_path), exist_ok=True)
+                    
+                    with open(img_path, "wb") as f:
+                        f.write(frame.data.getvalue())
+                    
+                    file_size = os.path.getsize(img_path)
+                    log_message(f"Saved frame {frame_name} to job_{job_id}, size: {file_size} bytes")
+                
+                log_message(f"Finished processing {frame_count} frames for job {job_id}")
+                
+            except Exception as e:
+                log_message(f"ERROR processing frames for job {job_id}: {str(e)}")
+                import traceback
+                log_message(f"Traceback: {traceback.format_exc()}")
+        else:
+            if not save_images:
+                log_message("save_images=False, skipping frame processing")
+            if not frames_data:
+                log_message("frames_data is empty, skipping frame processing")
+
+    log_message(f"=== Export completed. Processed {job_count} jobs ===")
+    log_message("Creating zip archive")
+    
+    make_zip_archive(temp_dir, dst_file)
+    log_message("Zip archive created successfully")
+
+
+def _export_task_or_job_old(dst_file, temp_dir, instance_data, anno_callback, save_images=False):
 
     frame_provider = make_frame_provider(instance_data.db_instance)
 
@@ -2358,7 +2515,7 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
             image_size = (frame_annotation.height, frame_annotation.width)
             mask = create_mask_from_frame_annotation(frame_annotation, labels_dict, image_size)
             
-            # Calculate relative distribution for legend
+            # Calculate relative distribution of materials
             relative_distribution = calculate_relative_distribution(mask, labels_dict)
             
             # Convert mask to BGR for OpenCV processing
