@@ -1079,6 +1079,128 @@ def create_manifest_xml(frame_annotation, frame_id, instance_data, frame_dir: st
     return manifest_path
 
 
+def create_metrics_xml(frame_annotation, frame_id, instance_data, frame_dir: str, labels_dict: dict, relative_distribution: dict = None, visual_fingerprint: str = None, file_fingerprint: str = None) -> str:
+    """
+    Create metrics XML file for a frame directory containing image metadata, file hashes, 
+    and detected materials with their respective area percentages.
+    
+    Args:
+        frame_annotation: Frame annotation object
+        frame_id: Frame ID
+        instance_data: Instance data containing task/job information
+        frame_dir: Path to frame directory
+        labels_dict: Dictionary mapping label names to colors
+        relative_distribution: Pre-calculated material distribution percentages (optional)
+        
+    Returns:
+        str: Path to created metrics.xml file
+    """
+    from datetime import datetime
+    from xml.dom import minidom
+    import os
+    
+    # Create XML document
+    doc = minidom.Document()
+    
+    # Root element
+    metrics = doc.createElement('metrics')
+    doc.appendChild(metrics)
+    
+    # Image metadata section
+    image_metadata = doc.createElement('image_metadata')
+    metrics.appendChild(image_metadata)
+    
+    # Get the current filename from the directory
+    frame_name = instance_data.frame_info[frame_id]["path"] if frame_id in instance_data.frame_info else frame_annotation.name
+    filename_elem = doc.createElement('filename')
+    filename_elem.appendChild(doc.createTextNode(frame_name))
+    image_metadata.appendChild(filename_elem)
+    
+    dimensions_elem = doc.createElement('dimensions')
+    dimensions_elem.setAttribute('width', str(frame_annotation.width))
+    dimensions_elem.setAttribute('height', str(frame_annotation.height))
+    image_metadata.appendChild(dimensions_elem)
+    
+    # Original frame name
+    original_name_elem = doc.createElement('original_frame_name')
+    original_name_elem.appendChild(doc.createTextNode(frame_annotation.name))
+    image_metadata.appendChild(original_name_elem)
+    
+    # Frame ID
+    frame_id_elem = doc.createElement('frame_id')
+    frame_id_elem.appendChild(doc.createTextNode(str(frame_id)))
+    image_metadata.appendChild(frame_id_elem)
+    
+    # Annotations count
+    annotations_count_elem = doc.createElement('annotations_count')
+    annotations_count_elem.appendChild(doc.createTextNode(str(len(frame_annotation.labeled_shapes))))
+    image_metadata.appendChild(annotations_count_elem)
+    
+    # File hashes section
+    file_hashes = doc.createElement('file_hashes')
+    metrics.appendChild(file_hashes)
+    
+    # Use pre-calculated file fingerprint if provided
+    if file_fingerprint is not None:
+        hash_elem = doc.createElement('file_hash')
+        hash_elem.setAttribute('filename', frame_name)
+        hash_elem.setAttribute('algorithm', 'sha256')
+        hash_elem.appendChild(doc.createTextNode(file_fingerprint))
+        file_hashes.appendChild(hash_elem)
+    
+    # Material distribution section
+    material_distribution = doc.createElement('material_distribution')
+    metrics.appendChild(material_distribution)
+    
+    # Use pre-calculated material distribution if provided
+    if relative_distribution:
+        # Add each material with its percentage
+        for label_name, percentage in relative_distribution.items():
+            material_elem = doc.createElement('material')
+            material_elem.setAttribute('name', label_name)
+            material_elem.setAttribute('area_percentage', f"{percentage:.2f}")
+            
+            # Add color information if available
+            if label_name in labels_dict:
+                color_elem = doc.createElement('color')
+                color_elem.appendChild(doc.createTextNode(labels_dict[label_name]))
+                material_elem.appendChild(color_elem)
+            
+            material_distribution.appendChild(material_elem)
+    else:
+        # Add note that material distribution was not provided
+        note_elem = doc.createElement('note')
+        note_elem.appendChild(doc.createTextNode('Material distribution not available'))
+        material_distribution.appendChild(note_elem)
+    
+    # Computation metadata
+    computation_metadata = doc.createElement('computation_metadata')
+    metrics.appendChild(computation_metadata)
+    
+    timestamp_elem = doc.createElement('computation_timestamp')
+    timestamp_elem.appendChild(doc.createTextNode(datetime.utcnow().isoformat() + 'Z'))
+    computation_metadata.appendChild(timestamp_elem)
+    
+    total_pixels_elem = doc.createElement('total_pixels')
+    total_pixels = frame_annotation.width * frame_annotation.height
+    total_pixels_elem.appendChild(doc.createTextNode(str(total_pixels)))
+    computation_metadata.appendChild(total_pixels_elem)
+    
+    # Visual fingerprint if provided
+    if visual_fingerprint is not None:
+        visual_fp_elem = doc.createElement('visual_fingerprint')
+        visual_fp_elem.setAttribute('algorithm', 'perceptual_hash')
+        visual_fp_elem.appendChild(doc.createTextNode(visual_fingerprint))
+        computation_metadata.appendChild(visual_fp_elem)
+    
+    # Write metrics file
+    metrics_path = osp.join(frame_dir, 'metrics.xml')
+    with open(metrics_path, 'w', encoding='utf-8') as f:
+        f.write(doc.toprettyxml(indent='  ', encoding=None))
+    
+    return metrics_path
+
+
 def add_legend_to_image(image: np.array, relative_distribution: dict, labels_dict: dict) -> np.array:
     """
     Add legend to image in bottom-right corner using OpenCV.
@@ -2274,15 +2396,12 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
             file_fingerprint = generate_file_fingerprint(frame.data.getvalue())
             visual_fingerprint = generate_visual_fingerprint(original_bgr)
             
-            # Save fingerprints to text file
-            fingerprints_filename = f"{frame_name_base}_fingerprints.txt"
-            fingerprints_path = osp.join(frame_dir, fingerprints_filename)
-            with open(fingerprints_path, "w") as fp_file:
-                fp_file.write(f"File fingerprint: {file_fingerprint}\n")
-                fp_file.write(f"Visual fingerprint: {visual_fingerprint}\n")
-                fp_file.write(f"Frame ID: {frame_id}\n")
-                fp_file.write(f"Frame name: {frame_annotation.name}\n")
-                fp_file.write(f"Image dimensions: {frame_annotation.width}x{frame_annotation.height}\n")
+            # Create metrics file with the calculated relative distribution and fingerprints
+            create_metrics_xml(frame_annotation, frame_id, instance_data, frame_dir, labels_dict, relative_distribution, visual_fingerprint, file_fingerprint)
+        
+        # Create metrics file without material distribution if images are not saved
+        elif frame_id in included_frames:
+            create_metrics_xml(frame_annotation, frame_id, instance_data, frame_dir, labels_dict)
 
     make_zip_archive(temp_dir, dst_file)
 
