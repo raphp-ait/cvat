@@ -1080,6 +1080,206 @@ def create_manifest_xml(frame_annotation, frame_id, instance_data, frame_dir: st
     return manifest_path
 
 
+def create_job_manifest_xml(job_id: int, job_dir: str, frame_files: list, visualization_files: list) -> str:
+    """
+    Create manifest XML file for a job directory.
+    
+    Args:
+        job_id: Job ID
+        job_dir: Path to job directory
+        frame_files: List of original image filenames in this job
+        visualization_files: List of visualization files (masks, overlays, comparisons)
+        
+    Returns:
+        str: Path to created manifest.xml file
+    """
+    from datetime import datetime
+    from xml.dom import minidom
+    
+    # Create XML document
+    doc = minidom.Document()
+    
+    # Root element
+    manifest = doc.createElement('manifest')
+    doc.appendChild(manifest)
+    
+    # Job info section
+    job_info = doc.createElement('job_info')
+    manifest.appendChild(job_info)
+    
+    job_id_elem = doc.createElement('job_id')
+    job_id_elem.appendChild(doc.createTextNode(str(job_id)))
+    job_info.appendChild(job_id_elem)
+    
+    frames_count_elem = doc.createElement('frames_count')
+    frames_count_elem.appendChild(doc.createTextNode(str(len(frame_files))))
+    job_info.appendChild(frames_count_elem)
+    
+    directory_name_elem = doc.createElement('directory_name')
+    directory_name_elem.appendChild(doc.createTextNode(osp.basename(job_dir)))
+    job_info.appendChild(directory_name_elem)
+    
+    # Export info section
+    export_info = doc.createElement('export_info')
+    manifest.appendChild(export_info)
+    
+    timestamp_elem = doc.createElement('export_timestamp')
+    timestamp_elem.appendChild(doc.createTextNode(datetime.utcnow().isoformat() + 'Z'))
+    export_info.appendChild(timestamp_elem)
+    
+    format_elem = doc.createElement('export_format')
+    format_elem.appendChild(doc.createTextNode('CVAT Custom Job-Based Format'))
+    export_info.appendChild(format_elem)
+    
+    version_elem = doc.createElement('export_version')
+    version_elem.appendChild(doc.createTextNode('1.2'))
+    export_info.appendChild(version_elem)
+    
+    source_elem = doc.createElement('source')
+    source_elem.appendChild(doc.createTextNode('CVAT Server'))
+    export_info.appendChild(source_elem)
+    
+    # Files section
+    files_section = doc.createElement('files')
+    manifest.appendChild(files_section)
+    
+    # Add annotations file
+    file_elem = doc.createElement('file')
+    file_elem.setAttribute('name', 'annotations.xml')
+    file_elem.setAttribute('type', 'annotations')
+    files_section.appendChild(file_elem)
+    
+    # Add metrics file
+    file_elem = doc.createElement('file')
+    file_elem.setAttribute('name', 'metrics.xml')
+    file_elem.setAttribute('type', 'metrics')
+    files_section.appendChild(file_elem)
+    
+    # Add original image files
+    for filename in frame_files:
+        file_elem = doc.createElement('file')
+        file_elem.setAttribute('name', filename)
+        file_elem.setAttribute('type', 'source_image')
+        files_section.appendChild(file_elem)
+    
+    # Add visualization files
+    for filename in visualization_files:
+        if '_mask.png' in filename:
+            file_type = 'mask_visualization'
+        elif '_overlay.png' in filename:
+            file_type = 'overlay_visualization'
+        elif '_comparison.png' in filename:
+            file_type = 'comparison_visualization'
+        else:
+            file_type = 'visualization'
+            
+        file_elem = doc.createElement('file')
+        file_elem.setAttribute('name', filename)
+        file_elem.setAttribute('type', file_type)
+        files_section.appendChild(file_elem)
+    
+    # Write manifest file
+    manifest_path = osp.join(job_dir, 'manifest.xml')
+    with open(manifest_path, 'w', encoding='utf-8') as f:
+        f.write(doc.toprettyxml(indent='  ', encoding=None))
+    
+    return manifest_path
+
+
+def create_job_metrics_xml(job_id: int, job_dir: str, labels_dict: dict, averaged_distribution: dict, total_frames: int, total_annotations: int, file_fingerprints: list = None) -> str:
+    """
+    Create metrics XML file for a job directory containing averaged material distribution
+    and job-level statistics.
+    
+    Args:
+        job_id: Job ID
+        job_dir: Path to job directory  
+        labels_dict: Dictionary mapping label names to colors
+        averaged_distribution: Averaged material distribution percentages across all frames
+        total_frames: Total number of frames processed in this job
+        total_annotations: Total number of annotations across all frames in this job
+        file_fingerprints: List of tuples (filename, fingerprint) for each frame file
+        
+    Returns:
+        str: Path to created metrics.xml file
+    """
+    from datetime import datetime
+    from xml.dom import minidom
+    
+    # Create XML document
+    doc = minidom.Document()
+    
+    # Root element
+    metrics = doc.createElement('metrics')
+    doc.appendChild(metrics)
+    
+    # Job metadata section
+    job_metadata = doc.createElement('job_metadata')
+    metrics.appendChild(job_metadata)
+    
+    job_id_elem = doc.createElement('job_id')
+    job_id_elem.appendChild(doc.createTextNode(str(job_id)))
+    job_metadata.appendChild(job_id_elem)
+    
+    frames_processed_elem = doc.createElement('frames_processed')
+    frames_processed_elem.appendChild(doc.createTextNode(str(total_frames)))
+    job_metadata.appendChild(frames_processed_elem)
+    
+    total_annotations_elem = doc.createElement('total_annotations')
+    total_annotations_elem.appendChild(doc.createTextNode(str(total_annotations)))
+    job_metadata.appendChild(total_annotations_elem)
+    
+    # File hashes section
+    if file_fingerprints:
+        file_hashes = doc.createElement('file_hashes')
+        metrics.appendChild(file_hashes)
+        
+        for filename, fingerprint in file_fingerprints:
+            hash_elem = doc.createElement('file_hash')
+            hash_elem.setAttribute('filename', filename)
+            hash_elem.setAttribute('algorithm', 'sha256')
+            hash_elem.appendChild(doc.createTextNode(fingerprint))
+            file_hashes.appendChild(hash_elem)
+    
+    # Averaged material distribution section
+    material_distribution = doc.createElement('averaged_material_distribution')
+    metrics.appendChild(material_distribution)
+    
+    if averaged_distribution:
+        # Add each material with its averaged percentage
+        for label_name, avg_percentage in averaged_distribution.items():
+            material_elem = doc.createElement('material')
+            material_elem.setAttribute('name', label_name)
+            material_elem.setAttribute('percentage', f'{avg_percentage:.2f}')
+            if label_name in labels_dict:
+                material_elem.setAttribute('color', labels_dict[label_name])
+            material_distribution.appendChild(material_elem)
+    else:
+        # Add note that material distribution was not available
+        note_elem = doc.createElement('note')
+        note_elem.appendChild(doc.createTextNode('No material distribution available for this job'))
+        material_distribution.appendChild(note_elem)
+    
+    # Computation metadata
+    computation_metadata = doc.createElement('computation_metadata')
+    metrics.appendChild(computation_metadata)
+    
+    timestamp_elem = doc.createElement('computation_timestamp')
+    timestamp_elem.appendChild(doc.createTextNode(datetime.utcnow().isoformat() + 'Z'))
+    computation_metadata.appendChild(timestamp_elem)
+    
+    method_elem = doc.createElement('aggregation_method')
+    method_elem.appendChild(doc.createTextNode('arithmetic_mean'))
+    computation_metadata.appendChild(method_elem)
+    
+    # Write metrics file
+    metrics_path = osp.join(job_dir, 'metrics.xml')
+    with open(metrics_path, 'w', encoding='utf-8') as f:
+        f.write(doc.toprettyxml(indent='  ', encoding=None))
+    
+    return metrics_path
+
+
 def create_metrics_xml(frame_annotation, frame_id, instance_data, frame_dir: str, labels_dict: dict, relative_distribution: dict = None, visual_fingerprint: str = None, file_fingerprint: str = None) -> str:
     """
     Create metrics XML file for a frame directory containing image metadata, file hashes, 
@@ -2268,6 +2468,178 @@ def load_anno(file_object, annotations):
             el.clear()
 
 
+def dump_job_annotations(dst_file, job_data, anno_callback):
+    """
+    Dump all frame annotations for a job into a single annotations.xml file.
+    """
+    dumper = create_xml_dumper(dst_file)
+    dumper.open_document()
+    dumper.open_root()
+    dumper.add_meta(job_data.meta)
+    
+    # Process all frames in this job
+    for frame_annotation in job_data.group_by_frame(include_empty=True):
+        frame_id = frame_annotation.frame
+        image_attrs = OrderedDict([("id", str(frame_id)), ("name", frame_annotation.name)])
+        image_attrs.update(
+            OrderedDict(
+                [("width", str(frame_annotation.width)), ("height", str(frame_annotation.height))]
+            )
+        )
+        dumper.open_image(image_attrs)
+
+        def dump_labeled_shapes(shapes, is_skeleton=False):
+            for shape in shapes:
+                dump_data = OrderedDict([("label", shape.label), ("source", shape.source)])
+                if is_skeleton:
+                    dump_data.update(OrderedDict([("label", shape.label)]))
+
+                if shape.type != "skeleton":
+                    dump_data.update(OrderedDict([("occluded", str(int(shape.occluded)))]))
+
+                if shape.type == "rectangle":
+                    dump_data.update(
+                        OrderedDict(
+                            [
+                                ("xtl", "{:.2f}".format(shape.points[0])),
+                                ("ytl", "{:.2f}".format(shape.points[1])),
+                                ("xbr", "{:.2f}".format(shape.points[2])),
+                                ("ybr", "{:.2f}".format(shape.points[3])),
+                            ]
+                        )
+                    )
+
+                    if shape.rotation:
+                        dump_data.update(OrderedDict([("rotation", "{:.2f}".format(shape.rotation))]))
+                elif shape.type == "ellipse":
+                    dump_data.update(
+                        OrderedDict(
+                            [
+                                ("cx", "{:.2f}".format(shape.points[0])),
+                                ("cy", "{:.2f}".format(shape.points[1])),
+                                ("rx", "{:.2f}".format(shape.points[2] - shape.points[0])),
+                                ("ry", "{:.2f}".format(shape.points[1] - shape.points[3])),
+                            ]
+                        )
+                    )
+
+                    if shape.rotation:
+                        dump_data.update(OrderedDict([("rotation", "{:.2f}".format(shape.rotation))]))
+                elif shape.type == "mask":
+                    dump_data.update(
+                        OrderedDict(
+                            [
+                                ("rle", f"{list(int(v) for v in shape.points[:-4])}"[1:-1]),
+                                ("left", f"{int(shape.points[-4])}"),
+                                ("top", f"{int(shape.points[-3])}"),
+                                ("width", f"{int(shape.points[-2] - shape.points[-4]) + 1}"),
+                                ("height", f"{int(shape.points[-1] - shape.points[-3]) + 1}"),
+                            ]
+                        )
+                    )
+                elif shape.type == "cuboid":
+                    dump_data.update(
+                        OrderedDict(
+                            [
+                                ("xtl1", "{:.2f}".format(shape.points[0])),
+                                ("ytl1", "{:.2f}".format(shape.points[1])),
+                                ("xbl1", "{:.2f}".format(shape.points[2])),
+                                ("ybl1", "{:.2f}".format(shape.points[3])),
+                                ("xtr1", "{:.2f}".format(shape.points[4])),
+                                ("ytr1", "{:.2f}".format(shape.points[5])),
+                                ("xbr1", "{:.2f}".format(shape.points[6])),
+                                ("ybr1", "{:.2f}".format(shape.points[7])),
+                                ("xtl2", "{:.2f}".format(shape.points[8])),
+                                ("ytl2", "{:.2f}".format(shape.points[9])),
+                                ("xbl2", "{:.2f}".format(shape.points[10])),
+                                ("ybl2", "{:.2f}".format(shape.points[11])),
+                                ("xtr2", "{:.2f}".format(shape.points[12])),
+                                ("ytr2", "{:.2f}".format(shape.points[13])),
+                                ("xbr2", "{:.2f}".format(shape.points[14])),
+                                ("ybr2", "{:.2f}".format(shape.points[15])),
+                            ]
+                        )
+                    )
+                elif shape.type != "skeleton":
+                    dump_data.update(
+                        OrderedDict(
+                            [
+                                (
+                                    "points",
+                                    ";".join(
+                                        ["{:.2f},{:.2f}".format(x, y) for x, y in pairwise(shape.points)]
+                                    ),
+                                )
+                            ]
+                        )
+                    )
+
+                if not is_skeleton:
+                    dump_data["z_order"] = str(shape.z_order)
+                if shape.group:
+                    dump_data["group_id"] = str(shape.group)
+
+                if shape.type == "rectangle":
+                    dumper.open_box(dump_data)
+                elif shape.type == "ellipse":
+                    dumper.open_ellipse(dump_data)
+                elif shape.type == "polygon":
+                    dumper.open_polygon(dump_data)
+                elif shape.type == "polyline":
+                    dumper.open_polyline(dump_data)
+                elif shape.type == "points":
+                    dumper.open_points(dump_data)
+                elif shape.type == "mask":
+                    dumper.open_mask(dump_data)
+                elif shape.type == "cuboid":
+                    dumper.open_cuboid(dump_data)
+                elif shape.type == "skeleton":
+                    dumper.open_skeleton(dump_data)
+                    dump_labeled_shapes(shape.elements, is_skeleton=True)
+                else:
+                    raise NotImplementedError("unknown shape type")
+
+                for attr in shape.attributes:
+                    dumper.add_attribute(OrderedDict([("name", attr.name), ("value", attr.value)]))
+
+                if shape.type == "rectangle":
+                    dumper.close_box()
+                elif shape.type == "ellipse":
+                    dumper.close_ellipse()
+                elif shape.type == "polygon":
+                    dumper.close_polygon()
+                elif shape.type == "polyline":
+                    dumper.close_polyline()
+                elif shape.type == "points":
+                    dumper.close_points()
+                elif shape.type == "cuboid":
+                    dumper.close_cuboid()
+                elif shape.type == "mask":
+                    dumper.close_mask()
+                elif shape.type == "skeleton":
+                    dumper.close_skeleton()
+                else:
+                    raise NotImplementedError("unknown shape type")
+
+        dump_labeled_shapes(frame_annotation.labeled_shapes)
+
+        for tag in frame_annotation.tags:
+            tag_data = OrderedDict([("label", tag.label), ("source", tag.source)])
+            if tag.group:
+                tag_data["group_id"] = str(tag.group)
+            dumper.open_tag(tag_data)
+
+            for attr in tag.attributes:
+                dumper.add_attribute(OrderedDict([("name", attr.name), ("value", attr.value)]))
+
+            dumper.close_tag()
+
+        dumper.close_image()
+    
+    dumper.close_root()
+    dumper.close_document()
+
+
 def dump_task_or_job_anno(dst_file, instance_data, callback, frame_annotation):
     dumper = create_xml_dumper(dst_file)
     dumper.open_document()
@@ -2316,249 +2688,192 @@ def dump_media_files(
 
 def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_images=False):
     """
-    Experimental export function that groups frames by jobs and exports original images
-    in separate subdirectories for each job.
+    Export function that groups frames by jobs and generates visualizations for each frame.
+    Creates job-based directories with comprehensive annotations, metrics, and visualizations.
     """
     from cvat.apps.dataset_manager.task import JobAnnotation
+    from cvat.apps.engine.models import JobType
     import datetime
-    
-    # Create log file for debugging
-    log_file_path = osp.join(temp_dir, "export_debug.log")
-    
-    def log_message(message):
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(log_file_path, "a", encoding="utf-8") as log_file:
-            log_file.write(f"[{timestamp}] {message}\n")
-    
-    log_message("=== Starting experimental export ===")
-    log_message(f"instance_data type: {type(instance_data)}")
-    log_message(f"save_images: {save_images}")
-    log_message(f"temp_dir: {temp_dir}")
+    import traceback
     
     # Helper function to get jobs for different instance types
     def get_jobs_for_instance(instance_data):
-        log_message("Entering get_jobs_for_instance")
         if isinstance(instance_data, JobData):
-            log_message("Processing JobData instance")
             # Already a single job
-            frames = list(instance_data.group_by_frame())
-            log_message(f"JobData - job_id: {instance_data.db_instance.id}, frames count: {len(frames)}")
             yield {
                 'job_id': instance_data.db_instance.id,
                 'job_data': instance_data,
-                'frames': frames
+                'first_frame_name': None  # Will be set later
             }
         elif isinstance(instance_data, TaskData):
-            log_message("Processing TaskData instance")
             # Get actual jobs for this task
             task = instance_data.db_instance
-            log_message(f"Task ID: {task.id}")
-            
             segments = task.segment_set.all().prefetch_related('job_set')
-            log_message(f"Found {len(segments)} segments")
             
             for segment in segments:
-                log_message(f"Processing segment {segment.id}")
                 jobs = segment.job_set.all()
-                log_message(f"Segment has {len(jobs)} jobs")
                 
                 for job_instance in jobs:
-                    log_message(f"Processing job {job_instance.id}, type: {getattr(job_instance, 'type', 'NO_TYPE')}")
-                    
                     if hasattr(job_instance, 'type') and job_instance.type == JobType.ANNOTATION:
-                        log_message(f"Job {job_instance.id} is ANNOTATION type")
                         # Create JobData for this specific job
                         try:
-                            job_annotation = JobAnnotation(job_instance.id)  # Use job ID instead of job instance
+                            job_annotation = JobAnnotation(job_instance.id)
                             job_annotation.init_from_db()
+                            # Create JobData using the annotation data and job instance
                             job_data = JobData(job_annotation.ir_data, job_instance)
-                            
-                            frames = list(job_data.group_by_frame())
-                            log_message(f"Successfully created JobData for job {job_instance.id}, frames: {len(frames)}")
                             
                             yield {
                                 'job_id': job_instance.id,
                                 'job_data': job_data,
-                                'frames': frames
+                                'first_frame_name': None  # Will be set later
                             }
                         except Exception as e:
-                            log_message(f"ERROR: Could not process job {job_instance.id}: {str(e)}")
+                            print(f"Error creating JobData for job {job_instance.id}: {e}")
                             continue
-                    else:
-                        log_message(f"Job {job_instance.id} is not ANNOTATION type, skipping")
         else:
-            log_message(f"ProjectData grouping by jobs not implemented in experimental function")
-            return
-
-    log_message("Starting job processing")
-    job_count = 0
-    
-    # Process each job
-    for job_info in get_jobs_for_instance(instance_data):
-        job_count += 1
-        job_id = job_info['job_id']
-        job_data = job_info['job_data']
-        frames_data = job_info['frames']
-        
-        log_message(f"=== Processing job {job_count}: {job_id} ===")
-        log_message(f"Frames data length: {len(frames_data)}")
-        
-        # Create job-specific directory
-        job_dir = osp.join(temp_dir, f"job_{job_id}")
-        os.makedirs(job_dir, exist_ok=True)
-        log_message(f"Created directory: {job_dir}")
-        
-        if save_images and frames_data:
-            log_message("save_images=True and frames_data exists, processing frames")
-            
-            try:
-                # Get frame provider for this job
-                frame_provider = make_frame_provider(job_data.db_instance)
-                log_message(f"Created frame provider for job {job_id}")
-                
-                frames = frame_provider.iterate_frames(
-                    start_frame=job_data.start,
-                    stop_frame=job_data.stop,
-                    quality=FrameQuality.ORIGINAL,
-                    out_type=FrameOutputType.BUFFER,
-                )
-                log_message(f"Got frame iterator for job {job_id}, start: {job_data.start}, stop: {job_data.stop}")
-                
-                included_frames = job_data.get_included_frames()
-                log_message(f"Included frames for job {job_id}: {len(included_frames)} frames")
-                log_message(f"Included frame IDs: {list(included_frames)}")
-                
-                frame_count = 0
-                # Process frames for this job
-                for frame_annotation, frame_id, frame in zip(job_data.group_by_frame(include_empty=True), job_data.rel_range, frames):
-                    frame_count += 1
-                    log_message(f"Processing frame {frame_count}: frame_id={frame_id}")
-                    
-                    if frame_id not in included_frames:
-                        log_message(f"Frame {frame_id} not in included_frames, skipping")
-                        continue
-                    
-                    frame_name = job_data.frame_info[frame_id]["path"]
-                    log_message(f"Frame {frame_id} name: {frame_name}")
-                    
-                    # Save original image directly in job directory
-                    img_path = osp.join(job_dir, frame_name)
-                    os.makedirs(osp.dirname(img_path), exist_ok=True)
-                    
-                    with open(img_path, "wb") as f:
-                        f.write(frame.data.getvalue())
-                    
-                    file_size = os.path.getsize(img_path)
-                    log_message(f"Saved frame {frame_name} to job_{job_id}, size: {file_size} bytes")
-                
-                log_message(f"Finished processing {frame_count} frames for job {job_id}")
-                
-            except Exception as e:
-                log_message(f"ERROR processing frames for job {job_id}: {str(e)}")
-                import traceback
-                log_message(f"Traceback: {traceback.format_exc()}")
-        else:
-            if not save_images:
-                log_message("save_images=False, skipping frame processing")
-            if not frames_data:
-                log_message("frames_data is empty, skipping frame processing")
-
-    log_message(f"=== Export completed. Processed {job_count} jobs ===")
-    log_message("Creating zip archive")
-    
-    make_zip_archive(temp_dir, dst_file)
-    log_message("Zip archive created successfully")
-
-
-def _export_task_or_job_old(dst_file, temp_dir, instance_data, anno_callback, save_images=False):
-
-    frame_provider = make_frame_provider(instance_data.db_instance)
-
-    # ext = ""
-    # if instance_data.meta[instance_data.META_FIELD]["mode"] == "interpolation":
-    #     ext = frame_provider.VIDEO_FRAME_EXT
-
-    frames = frame_provider.iterate_frames(
-        start_frame=instance_data.start,
-        stop_frame=instance_data.stop,
-        quality=FrameQuality.ORIGINAL,
-        out_type=FrameOutputType.BUFFER,
-    )
-    included_frames = instance_data.get_included_frames()
+            # ProjectData - use original export logic
+            raise NotImplementedError("ProjectData export with job grouping not implemented")
 
     # Extract labels from metadata
     labels_dict = extract_labels_from_meta(instance_data.meta)
-
-    for frame_annotation, frame_id, frame in zip(instance_data.group_by_frame(include_empty=True), instance_data.rel_range, frames):
-        # Create frame-specific directory using frame name (without extension)
-        frame_name_base = osp.splitext(frame_annotation.name)[0]
-        frame_dir = osp.join(temp_dir, frame_name_base)
-        os.makedirs(frame_dir, exist_ok=True)
+    
+    # Process each job
+    for job_info in get_jobs_for_instance(instance_data):
+        job_id = job_info['job_id']
+        job_data = job_info['job_data']
         
-        with open(osp.join(frame_dir, "annotations.xml"), "wb") as f:
-            dump_task_or_job_anno(f, instance_data, anno_callback, frame_annotation)
+        # Get first frame name for directory naming
+        first_frame_annotation = None
+        for frame_annotation in job_data.group_by_frame(include_empty=True):
+            if frame_annotation.name:  # Skip empty frames
+                first_frame_annotation = frame_annotation
+                break
         
-        # Create manifest file
-        create_manifest_xml(frame_annotation, frame_id, instance_data, frame_dir)
-
+        if not first_frame_annotation:
+            continue  # Skip jobs with no valid frames
+            
+        # Get first frame name without extension for directory naming
+        first_frame_name = osp.splitext(first_frame_annotation.name)[0]
+        job_info['first_frame_name'] = first_frame_name
+        
+        # Create job-specific directory
+        job_dir = osp.join(temp_dir, f"job_{job_id}_{first_frame_name}")
+        os.makedirs(job_dir, exist_ok=True)
+        
+        # Create annotations.xml for the entire job
+        with open(osp.join(job_dir, "annotations.xml"), "wb") as f:
+            dump_job_annotations(f, job_data, anno_callback)
+        
+        # Lists to track files for manifest creation
+        frame_files = []
+        visualization_files = []
+        
+        # Variables for averaging material distribution and collecting fingerprints
+        job_distributions = []
+        file_fingerprints = []
+        total_annotations = 0
+        processed_frames = 0
+        
         if save_images:
-            if frame_id not in included_frames:
-                continue
-            frame_name = instance_data.frame_info[frame_id]["path"]
-            img_path = osp.join(frame_dir, frame_name)
+            # Get frame provider for this job
+            frame_provider = make_frame_provider(job_data.db_instance)
             
-            os.makedirs(osp.dirname(img_path), exist_ok=True)
-            with open(img_path, "wb") as f:
-                f.write(frame.data.getvalue())
-
-            # Generate mask
-            image_size = (frame_annotation.height, frame_annotation.width)
-            mask = create_mask_from_frame_annotation(frame_annotation, labels_dict, image_size)
+            frames = frame_provider.iterate_frames(
+                start_frame=job_data.start,
+                stop_frame=job_data.stop,
+                quality=FrameQuality.ORIGINAL,
+                out_type=FrameOutputType.BUFFER,
+            )
+            included_frames = job_data.get_included_frames()
             
-            # Calculate relative distribution of materials
-            relative_distribution = calculate_relative_distribution(mask, labels_dict)
-            
-            # Convert mask to BGR for OpenCV processing
-            mask_bgr = cv2.cvtColor(mask, cv2.COLOR_RGB2BGR)
-            
-            # Add legend to mask
-            mask_with_legend = add_legend_to_image(mask_bgr, relative_distribution, labels_dict)
-            
-            # Save mask with legend as PNG
-            mask_filename = f"{frame_name_base}_mask.png"
-            mask_path = osp.join(frame_dir, mask_filename)
-            cv2.imwrite(mask_path, mask_with_legend)
-            
-            # Create and save overlay
-            # Read the original image back as BGR for OpenCV
-            original_bgr = cv2.imdecode(np.frombuffer(frame.data.getvalue(), np.uint8), cv2.IMREAD_COLOR)
-            overlay = create_overlay_image(original_bgr, mask, alpha=0.5)
-            
-            # Add legend to overlay
-            overlay_with_legend = add_legend_to_image(overlay, relative_distribution, labels_dict)
-            
-            # Save overlay with legend as PNG
-            overlay_filename = f"{frame_name_base}_overlay.png"
-            overlay_path = osp.join(frame_dir, overlay_filename)
-            cv2.imwrite(overlay_path, overlay_with_legend)
-            
-            # Create and save side-by-side comparison
-            comparison = create_side_by_side_comparison(original_bgr, mask_with_legend, overlay_with_legend, 
-                                                      scale_factor=0.3, padding=20)
-            comparison_filename = f"{frame_name_base}_comparison.png"
-            comparison_path = osp.join(frame_dir, comparison_filename)
-            cv2.imwrite(comparison_path, comparison)
-            
-            # Generate fingerprints
-            file_fingerprint = generate_file_fingerprint(frame.data.getvalue())
-            visual_fingerprint = generate_visual_fingerprint(original_bgr)
-            
-            # Create metrics file with the calculated relative distribution and fingerprints
-            create_metrics_xml(frame_annotation, frame_id, instance_data, frame_dir, labels_dict, relative_distribution, visual_fingerprint, file_fingerprint)
+            # Process frames for this job
+            for frame_annotation, frame_id, frame in zip(job_data.group_by_frame(include_empty=True), job_data.rel_range, frames):
+                if frame_id not in included_frames:
+                    continue
+                    
+                frame_name = job_data.frame_info[frame_id]["path"]
+                frame_name_base = osp.splitext(frame_name)[0]
+                
+                # Save original image in job directory
+                img_path = osp.join(job_dir, frame_name)
+                os.makedirs(osp.dirname(img_path), exist_ok=True)
+                
+                with open(img_path, "wb") as f:
+                    f.write(frame.data.getvalue())
+                frame_files.append(frame_name)
+                
+                # Generate file fingerprint for this frame
+                file_fingerprint = generate_file_fingerprint(frame.data.getvalue())
+                file_fingerprints.append((frame_name, file_fingerprint))
+                
+                # Generate mask
+                image_size = (frame_annotation.height, frame_annotation.width)
+                mask = create_mask_from_frame_annotation(frame_annotation, labels_dict, image_size)
+                
+                # Calculate relative distribution of materials for this frame
+                relative_distribution = calculate_relative_distribution(mask, labels_dict)
+                if relative_distribution:
+                    job_distributions.append(relative_distribution)
+                
+                # Convert mask to BGR for OpenCV processing
+                mask_bgr = cv2.cvtColor(mask, cv2.COLOR_RGB2BGR)
+                
+                # Add legend to mask
+                mask_with_legend = add_legend_to_image(mask_bgr, relative_distribution, labels_dict)
+                
+                # Save mask with legend as PNG (prefixed with frame name)
+                mask_filename = f"{frame_name_base}_mask.png"
+                mask_path = osp.join(job_dir, mask_filename)
+                cv2.imwrite(mask_path, mask_with_legend)
+                visualization_files.append(mask_filename)
+                
+                # Create and save overlay
+                # Read the original image back as BGR for OpenCV
+                original_bgr = cv2.imdecode(np.frombuffer(frame.data.getvalue(), np.uint8), cv2.IMREAD_COLOR)
+                overlay = create_overlay_image(original_bgr, mask, alpha=0.5)
+                
+                # Add legend to overlay
+                overlay_with_legend = add_legend_to_image(overlay, relative_distribution, labels_dict)
+                
+                # Save overlay with legend as PNG (prefixed with frame name)
+                overlay_filename = f"{frame_name_base}_overlay.png"
+                overlay_path = osp.join(job_dir, overlay_filename)
+                cv2.imwrite(overlay_path, overlay_with_legend)
+                visualization_files.append(overlay_filename)
+                
+                # Create and save side-by-side comparison
+                comparison = create_side_by_side_comparison(original_bgr, mask_with_legend, overlay_with_legend, 
+                                                          scale_factor=0.3, padding=20)
+                comparison_filename = f"{frame_name_base}_comparison.png"
+                comparison_path = osp.join(job_dir, comparison_filename)
+                cv2.imwrite(comparison_path, comparison)
+                visualization_files.append(comparison_filename)
+                
+                # Count annotations and frames
+                total_annotations += len(frame_annotation.labeled_shapes)
+                processed_frames += 1
         
-        # Create metrics file without material distribution if images are not saved
-        elif frame_id in included_frames:
-            create_metrics_xml(frame_annotation, frame_id, instance_data, frame_dir, labels_dict)
+        # Calculate averaged material distribution for this job
+        averaged_distribution = {}
+        if job_distributions:
+            # Get all unique labels across all frames
+            all_labels = set()
+            for dist in job_distributions:
+                all_labels.update(dist.keys())
+            
+            # Calculate average percentage for each label
+            for label in all_labels:
+                percentages = [dist.get(label, 0.0) for dist in job_distributions]
+                averaged_distribution[label] = sum(percentages) / len(job_distributions)
+            
+            # Sort by average percentage descending
+            averaged_distribution = dict(sorted(averaged_distribution.items(), key=lambda x: x[1], reverse=True))
+        
+        # Create job-level manifest.xml
+        create_job_manifest_xml(job_id, job_dir, frame_files, visualization_files)
+        
+        # Create job-level metrics.xml with averaged distribution and file fingerprints
+        create_job_metrics_xml(job_id, job_dir, labels_dict, averaged_distribution, processed_frames, total_annotations, file_fingerprints)
 
     make_zip_archive(temp_dir, dst_file)
 
