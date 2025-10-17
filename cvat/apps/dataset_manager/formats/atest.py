@@ -1080,7 +1080,7 @@ def create_manifest_xml(frame_annotation, frame_id, instance_data, frame_dir: st
     return manifest_path
 
 
-def create_job_manifest_xml(job_id: int, job_dir: str, frame_files: list, visualization_files: list) -> str:
+def create_job_manifest_xml(job_id: int, job_dir: str, frame_files: list, visualization_files: list, file_fingerprints: list = None) -> str:
     """
     Create manifest XML file for a job directory.
     
@@ -1089,6 +1089,7 @@ def create_job_manifest_xml(job_id: int, job_dir: str, frame_files: list, visual
         job_dir: Path to job directory
         frame_files: List of original image filenames in this job
         visualization_files: List of visualization files (masks, overlays, comparisons)
+        file_fingerprints: List of tuples (filename, fingerprint) for each frame file
         
     Returns:
         str: Path to created manifest.xml file
@@ -1102,43 +1103,42 @@ def create_job_manifest_xml(job_id: int, job_dir: str, frame_files: list, visual
     # Root element
     manifest = doc.createElement('manifest')
     doc.appendChild(manifest)
+
+    directory_name_elem = doc.createElement('directory_name')
+    directory_name_elem.appendChild(doc.createTextNode(osp.basename(job_dir)))
+    manifest.appendChild(directory_name_elem)
+
+    # Export information directly under manifest
+    timestamp_elem = doc.createElement('export_timestamp')
+    timestamp_elem.appendChild(doc.createTextNode(datetime.utcnow().isoformat() + 'Z'))
+    manifest.appendChild(timestamp_elem)
+
+    format_elem = doc.createElement('export_format')
+    format_elem.appendChild(doc.createTextNode('CVAT Custom NES Format'))
+    manifest.appendChild(format_elem)
+
+    version_elem = doc.createElement('export_version')
+    version_elem.appendChild(doc.createTextNode('1.1'))
+    manifest.appendChild(version_elem)
     
-    # Job info section
-    job_info = doc.createElement('job_info')
-    manifest.appendChild(job_info)
+    source_elem = doc.createElement('source')
+    source_elem.appendChild(doc.createTextNode('CVAT Server http://10.101.252.30:8080/'))
+    manifest.appendChild(source_elem)
     
+    # Job information directly under manifest
     job_id_elem = doc.createElement('job_id')
     job_id_elem.appendChild(doc.createTextNode(str(job_id)))
-    job_info.appendChild(job_id_elem)
+    manifest.appendChild(job_id_elem)
     
     frames_count_elem = doc.createElement('frames_count')
     frames_count_elem.appendChild(doc.createTextNode(str(len(frame_files))))
-    job_info.appendChild(frames_count_elem)
+    manifest.appendChild(frames_count_elem)
     
-    directory_name_elem = doc.createElement('directory_name')
-    directory_name_elem.appendChild(doc.createTextNode(osp.basename(job_dir)))
-    job_info.appendChild(directory_name_elem)
-    
-    # Export info section
-    export_info = doc.createElement('export_info')
-    manifest.appendChild(export_info)
-    
-    timestamp_elem = doc.createElement('export_timestamp')
-    timestamp_elem.appendChild(doc.createTextNode(datetime.utcnow().isoformat() + 'Z'))
-    export_info.appendChild(timestamp_elem)
-    
-    format_elem = doc.createElement('export_format')
-    format_elem.appendChild(doc.createTextNode('CVAT Custom Job-Based Format'))
-    export_info.appendChild(format_elem)
-    
-    version_elem = doc.createElement('export_version')
-    version_elem.appendChild(doc.createTextNode('1.2'))
-    export_info.appendChild(version_elem)
-    
-    source_elem = doc.createElement('source')
-    source_elem.appendChild(doc.createTextNode('CVAT Server'))
-    export_info.appendChild(source_elem)
-    
+    # Create fingerprint lookup dict for easy access
+    fingerprint_dict = {}
+    if file_fingerprints:
+        fingerprint_dict = dict(file_fingerprints)
+        
     # Files section
     files_section = doc.createElement('files')
     manifest.appendChild(files_section)
@@ -1155,11 +1155,16 @@ def create_job_manifest_xml(job_id: int, job_dir: str, frame_files: list, visual
     file_elem.setAttribute('type', 'metrics')
     files_section.appendChild(file_elem)
     
-    # Add original image files
+    # Add original image files with fingerprints
     for filename in frame_files:
         file_elem = doc.createElement('file')
         file_elem.setAttribute('name', filename)
         file_elem.setAttribute('type', 'source_image')
+        
+        # Add fingerprint if available
+        if filename in fingerprint_dict:
+            file_elem.setAttribute('sha256', fingerprint_dict[filename])
+            
         files_section.appendChild(file_elem)
     
     # Add visualization files
@@ -1186,7 +1191,7 @@ def create_job_manifest_xml(job_id: int, job_dir: str, frame_files: list, visual
     return manifest_path
 
 
-def create_job_metrics_xml(job_id: int, job_dir: str, labels_dict: dict, averaged_distribution: dict, total_frames: int, total_annotations: int, file_fingerprints: list = None) -> str:
+def create_job_metrics_xml(job_id: int, job_dir: str, labels_dict: dict, averaged_distribution: dict, total_frames: int, total_annotations: int, per_frame_distributions: list = None, frame_names: list = None) -> str:
     """
     Create metrics XML file for a job directory containing averaged material distribution
     and job-level statistics.
@@ -1198,7 +1203,8 @@ def create_job_metrics_xml(job_id: int, job_dir: str, labels_dict: dict, average
         averaged_distribution: Averaged material distribution percentages across all frames
         total_frames: Total number of frames processed in this job
         total_annotations: Total number of annotations across all frames in this job
-        file_fingerprints: List of tuples (filename, fingerprint) for each frame file
+        per_frame_distributions: List of dicts containing per-frame material distributions
+        frame_names: List of frame names corresponding to per_frame_distributions
         
     Returns:
         str: Path to created metrics.xml file
@@ -1229,17 +1235,28 @@ def create_job_metrics_xml(job_id: int, job_dir: str, labels_dict: dict, average
     total_annotations_elem.appendChild(doc.createTextNode(str(total_annotations)))
     job_metadata.appendChild(total_annotations_elem)
     
-    # File hashes section
-    if file_fingerprints:
-        file_hashes = doc.createElement('file_hashes')
-        metrics.appendChild(file_hashes)
+    # Per-frame material distributions section
+    if per_frame_distributions:
+        per_frame_section = doc.createElement('per_frame_distributions')
+        metrics.appendChild(per_frame_section)
         
-        for filename, fingerprint in file_fingerprints:
-            hash_elem = doc.createElement('file_hash')
-            hash_elem.setAttribute('filename', filename)
-            hash_elem.setAttribute('algorithm', 'sha256')
-            hash_elem.appendChild(doc.createTextNode(fingerprint))
-            file_hashes.appendChild(hash_elem)
+        for frame_idx, frame_distribution in enumerate(per_frame_distributions):
+            frame_elem = doc.createElement('frame')
+            frame_elem.setAttribute('index', str(frame_idx))
+            
+            # Add frame name if provided
+            if frame_names and frame_idx < len(frame_names):
+                frame_elem.setAttribute('name', frame_names[frame_idx])
+            
+            per_frame_section.appendChild(frame_elem)
+            
+            for label_name, percentage in frame_distribution.items():
+                material_elem = doc.createElement('material')
+                material_elem.setAttribute('name', label_name)
+                material_elem.setAttribute('percentage', f'{percentage:.2f}')
+                if label_name in labels_dict:
+                    material_elem.setAttribute('color', labels_dict[label_name])
+                frame_elem.appendChild(material_elem)
     
     # Averaged material distribution section
     material_distribution = doc.createElement('averaged_material_distribution')
@@ -2770,6 +2787,7 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
         
         # Variables for averaging material distribution and collecting fingerprints
         job_distributions = []
+        frame_names = []
         file_fingerprints = []
         total_annotations = 0
         processed_frames = 0
@@ -2814,6 +2832,7 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
                 relative_distribution = calculate_relative_distribution(mask, labels_dict)
                 if relative_distribution:
                     job_distributions.append(relative_distribution)
+                    frame_names.append(frame_name)
                 
                 # Convert mask to BGR for OpenCV processing
                 mask_bgr = cv2.cvtColor(mask, cv2.COLOR_RGB2BGR)
@@ -2869,11 +2888,11 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
             # Sort by average percentage descending
             averaged_distribution = dict(sorted(averaged_distribution.items(), key=lambda x: x[1], reverse=True))
         
-        # Create job-level manifest.xml
-        create_job_manifest_xml(job_id, job_dir, frame_files, visualization_files)
+        # Create job-level manifest.xml with file fingerprints
+        create_job_manifest_xml(job_id, job_dir, frame_files, visualization_files, file_fingerprints)
         
-        # Create job-level metrics.xml with averaged distribution and file fingerprints
-        create_job_metrics_xml(job_id, job_dir, labels_dict, averaged_distribution, processed_frames, total_annotations, file_fingerprints)
+        # Create job-level metrics.xml with averaged distribution and per-frame data
+        create_job_metrics_xml(job_id, job_dir, labels_dict, averaged_distribution, processed_frames, total_annotations, job_distributions, frame_names)
 
     make_zip_archive(temp_dir, dst_file)
 
@@ -2918,7 +2937,7 @@ def _export_video(dst_file, temp_dir, instance_data, save_images=False):
         )
 
 
-@exporter(name="CVAT Custom Format", ext="ZIP", version="1.1")
+@exporter(name="CVAT Custom NES Format", ext="ZIP", version="1.1")
 def _export_images(dst_file, temp_dir, instance_data, save_images=False):
     if isinstance(instance_data, ProjectData):
         _export_project(
