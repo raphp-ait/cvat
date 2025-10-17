@@ -2908,6 +2908,25 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
         
         # Create job-level metrics.xml with averaged distribution and per-frame data
         create_job_metrics_xml(job_id, job_dir, labels_dict, averaged_distribution, processed_frames, total_annotations, job_distributions, frame_names)
+        
+        # Create ZIP file for this job directory
+        job_zip_filename = f"job_{job_id}_{first_frame_name}.zip"
+        job_zip_path = osp.join(temp_dir, job_zip_filename)
+        
+        # Create the job ZIP file
+        import zipfile
+        with zipfile.ZipFile(job_zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as job_zip:
+            # Walk through the job directory and add all files to ZIP
+            for root, dirs, files in os.walk(job_dir):
+                for file in files:
+                    file_path = osp.join(root, file)
+                    # Create relative path within the ZIP (remove the job_dir prefix)
+                    arcname = osp.relpath(file_path, job_dir)
+                    job_zip.write(file_path, arcname)
+        
+        # Remove the original job directory after creating ZIP
+        import shutil
+        shutil.rmtree(job_dir)
 
     make_zip_archive(temp_dir, dst_file)
 
