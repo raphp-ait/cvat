@@ -2812,19 +2812,32 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
                 frame_name = job_data.frame_info[frame_id]["path"]
                 frame_name_base = osp.splitext(frame_name)[0]
                 
-                # Save original image in job directory
-                img_path = osp.join(job_dir, frame_name)
+                # Generate file fingerprint for the ORIGINAL uncompressed image (for archival tracking)
+                original_frame_data = frame.data.getvalue()
+                file_fingerprint = generate_file_fingerprint(original_frame_data)
+                file_fingerprints.append((frame_name, file_fingerprint))  # Use original frame name for fingerprint reference
+                
+                # Save original image in job directory with compression
+                # Read the original image for processing
+                original_bgr = cv2.imdecode(np.frombuffer(original_frame_data, np.uint8), cv2.IMREAD_COLOR)
+                
+                # Resize original image to max 1024px on longest side for storage
+                height, width = original_bgr.shape[:2]
+                max_dimension = 1024
+                if max(height, width) > max_dimension:
+                    scale_factor = max_dimension / max(height, width)
+                    new_width = int(width * scale_factor)
+                    new_height = int(height * scale_factor)
+                    original_bgr = cv2.resize(original_bgr, (new_width, new_height), interpolation=cv2.INTER_AREA)
+                
+                # Save as JPEG with high quality but compressed
+                frame_name_jpg = osp.splitext(frame_name)[0] + '.jpg'
+                img_path = osp.join(job_dir, frame_name_jpg)
                 os.makedirs(osp.dirname(img_path), exist_ok=True)
+                cv2.imwrite(img_path, original_bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                frame_files.append(frame_name_jpg)
                 
-                with open(img_path, "wb") as f:
-                    f.write(frame.data.getvalue())
-                frame_files.append(frame_name)
-                
-                # Generate file fingerprint for this frame
-                file_fingerprint = generate_file_fingerprint(frame.data.getvalue())
-                file_fingerprints.append((frame_name, file_fingerprint))
-                
-                # Generate mask
+                # Generate mask at original resolution for annotation accuracy
                 image_size = (frame_annotation.height, frame_annotation.width)
                 mask = create_mask_from_frame_annotation(frame_annotation, labels_dict, image_size)
                 
@@ -2837,35 +2850,37 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
                 # Convert mask to BGR for OpenCV processing
                 mask_bgr = cv2.cvtColor(mask, cv2.COLOR_RGB2BGR)
                 
-                # Add legend to mask
-                mask_with_legend = add_legend_to_image(mask_bgr, relative_distribution, labels_dict)
-                
-                # Save mask with legend as PNG (prefixed with frame name)
+                # Save mask PNG (pure annotation data)
                 mask_filename = f"{frame_name_base}_mask.png"
                 mask_path = osp.join(job_dir, mask_filename)
-                cv2.imwrite(mask_path, mask_with_legend)
+                cv2.imwrite(mask_path, mask_bgr)
                 visualization_files.append(mask_filename)
                 
-                # Create and save overlay
-                # Read the original image back as BGR for OpenCV
-                original_bgr = cv2.imdecode(np.frombuffer(frame.data.getvalue(), np.uint8), cv2.IMREAD_COLOR)
-                overlay = create_overlay_image(original_bgr, mask, alpha=0.5)
+                # Create mask with legend for use in comparison image
+                mask_with_legend = add_legend_to_image(mask_bgr, relative_distribution, labels_dict)
+                
+                # Create and save overlay at reduced resolution
+                # Resize mask to match the compressed original image size
+                mask_resized = cv2.resize(mask, (original_bgr.shape[1], original_bgr.shape[0]), interpolation=cv2.INTER_NEAREST)
+                overlay = create_overlay_image(original_bgr, mask_resized, alpha=0.5)
                 
                 # Add legend to overlay
                 overlay_with_legend = add_legend_to_image(overlay, relative_distribution, labels_dict)
                 
-                # Save overlay with legend as PNG (prefixed with frame name)
-                overlay_filename = f"{frame_name_base}_overlay.png"
+                # Save overlay as JPEG with compression (prefixed with frame name)
+                overlay_filename = f"{frame_name_base}_overlay.jpg"
                 overlay_path = osp.join(job_dir, overlay_filename)
-                cv2.imwrite(overlay_path, overlay_with_legend)
+                cv2.imwrite(overlay_path, overlay_with_legend, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 visualization_files.append(overlay_filename)
                 
-                # Create and save side-by-side comparison
-                comparison = create_side_by_side_comparison(original_bgr, mask_with_legend, overlay_with_legend, 
-                                                          scale_factor=0.3, padding=20)
-                comparison_filename = f"{frame_name_base}_comparison.png"
+                # Create and save side-by-side comparison at smaller scale
+                # Use smaller mask for comparison (resize mask_with_legend to match original_bgr)
+                mask_comparison = cv2.resize(mask_with_legend, (original_bgr.shape[1], original_bgr.shape[0]), interpolation=cv2.INTER_NEAREST)
+                comparison = create_side_by_side_comparison(original_bgr, mask_comparison, overlay_with_legend, 
+                                                          scale_factor=0.25, padding=15)
+                comparison_filename = f"{frame_name_base}_comparison.jpg"
                 comparison_path = osp.join(job_dir, comparison_filename)
-                cv2.imwrite(comparison_path, comparison)
+                cv2.imwrite(comparison_path, comparison, [cv2.IMWRITE_JPEG_QUALITY, 75])
                 visualization_files.append(comparison_filename)
                 
                 # Count annotations and frames
