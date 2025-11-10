@@ -1442,9 +1442,9 @@ def add_legend_to_image(image: np.array, relative_distribution: dict, labels_dic
     legend_height = height // 6
     legend_width = width // 3  # Adjust width as needed
     
-    # Calculate font scale based on image size (increased for better readability)
-    font_scale = max(0.6, min(1.5, height / 600))  # Increased from 0.3-0.8 to 0.6-1.5
-    font_thickness = max(1, int(height / 600))      # Adjusted thickness scaling
+    # Calculate font scale based on image size (half the previous size for smaller font)
+    font_scale = max(0.3, min(0.75, height / 1200))  # Halved scale range
+    font_thickness = max(1, int(height / 1200))      # Halved thickness scaling
     
     # Legend positioning (bottom-right corner)
     legend_x = width - legend_width - 10
@@ -1561,21 +1561,22 @@ def create_side_by_side_comparison(original_bgr: np.array, mask_bgr: np.array, o
     composite[y_pos:y_pos + new_height, x_positions[2]:x_positions[2] + new_width] = overlay_resized
     
     # Add labels below each image
-    font_scale = max(0.7, min(1.2, new_height / 800))  # Scale font with image size
+    font_scale = max(0.7, min(1.2, new_height / 1600))  # Scale font with image size
     font_thickness = max(1, int(new_height / 600))
     font_color = (0, 0, 0)  # Black text
     
     labels = ["Original", "Mask", "Overlay"]
     for i, (label, x_pos) in enumerate(zip(labels, x_positions)):
         # Calculate text size and center it under the image
-        text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thickness)[0]
+        half_font_scale = font_scale * 0.5
+        text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, half_font_scale, font_thickness)[0]
         text_x = x_pos + (new_width - text_size[0]) // 2
         text_y = y_pos + new_height + padding // 2
         
         # Make sure text doesn't go outside the composite image
         if text_y < composite_height - 5:
             cv2.putText(composite, label, (text_x, text_y), 
-                       cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_color, font_thickness)
+                       cv2.FONT_HERSHEY_SIMPLEX, half_font_scale, font_color, font_thickness)
     
     return composite
 
@@ -2859,12 +2860,14 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
                 cv2.imwrite(mask_path, mask_bgr)
                 visualization_files.append(mask_filename)
                 
-                # Create mask with legend for use in comparison image
-                mask_with_legend = add_legend_to_image(mask_bgr, relative_distribution, labels_dict)
-                
-                # Create and save overlay at reduced resolution
                 # Resize mask to match the compressed original image size
                 mask_resized = cv2.resize(mask, (original_bgr.shape[1], original_bgr.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+                # Create mask with legend for use in comparison image
+                mask_with_legend = add_legend_to_image(mask_resized, relative_distribution, labels_dict)
+                
+                # Create and save overlay at reduced resolution
+                
                 overlay = create_overlay_image(original_bgr, mask_resized, alpha=0.5)
                 
                 # Add legend to overlay
@@ -2878,9 +2881,8 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
                 
                 # Create and save side-by-side comparison at smaller scale
                 # Use smaller mask for comparison (resize mask_with_legend to match original_bgr)
-                mask_comparison = cv2.resize(mask_with_legend, (original_bgr.shape[1], original_bgr.shape[0]), interpolation=cv2.INTER_NEAREST)
-                comparison = create_side_by_side_comparison(original_bgr, mask_comparison, overlay_with_legend, 
-                                                          scale_factor=0.25, padding=15)
+                comparison = create_side_by_side_comparison(original_bgr, mask_with_legend, overlay_with_legend, 
+                                                          scale_factor=0.35, padding=15)
                 comparison_filename = f"{frame_name_base}_comparison.jpg"
                 comparison_path = osp.join(job_dir, comparison_filename)
                 cv2.imwrite(comparison_path, comparison, [cv2.IMWRITE_JPEG_QUALITY, 75])
