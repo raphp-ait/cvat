@@ -2815,7 +2815,10 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
                 # Generate file fingerprint for the ORIGINAL uncompressed image (for archival tracking)
                 original_frame_data = frame.data.getvalue()
                 file_fingerprint = generate_file_fingerprint(original_frame_data)
-                file_fingerprints.append((frame_name, file_fingerprint))  # Use original frame name for fingerprint reference
+                
+                # Convert frame name to match the compressed filename that will be stored
+                frame_name_jpg = osp.splitext(frame_name)[0] + '.jpg'
+                file_fingerprints.append((frame_name_jpg, file_fingerprint))  # Use compressed filename as key for lookup
                 
                 # Save original image in job directory with compression
                 # Read the original image for processing
@@ -2831,7 +2834,7 @@ def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_i
                     original_bgr = cv2.resize(original_bgr, (new_width, new_height), interpolation=cv2.INTER_AREA)
                 
                 # Save as JPEG with high quality but compressed
-                frame_name_jpg = osp.splitext(frame_name)[0] + '.jpg'
+                #frame_name_jpg = osp.splitext(frame_name)[0] + '.jpg'
                 img_path = osp.join(job_dir, frame_name_jpg)
                 os.makedirs(osp.dirname(img_path), exist_ok=True)
                 cv2.imwrite(img_path, original_bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
