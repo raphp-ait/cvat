@@ -1,0 +1,78 @@
+# Copyright (C) CVAT.ai Corporation
+#
+# SPDX-License-Identifier: MIT
+
+metadata:
+  name: pth-facebookresearch-sam2-hiera-b
+  namespace: cvat
+  annotations:
+    name: Segment Anything 2
+    version: 2
+    type: interactor
+    spec:
+    min_pos_points: 1
+    min_neg_points: 0
+    startswith_box_optional: true
+    animated_gif: https://raw.githubusercontent.com/cvat-ai/cvat/develop/site/content/en/images/hrnet_example.gif
+    help_message: The interactor allows to get a mask of an object using positive and negative points inside it (SAM2)
+
+spec:
+  description: Interactive object segmentation with Segment Anything 2 (SAM2)
+  runtime: 'python:3.8'
+  handler: main:handler
+  eventTimeout: 30s
+  env:
+    - name: PYTHONPATH
+      value: /opt/nuclio/sam2
+
+  build:
+    image: cvat.pth.facebookresearch.sam2.hiera_b:latest-gpu
+    baseImage: ubuntu:22.04
+
+    directives:
+      preCopy:
+      # set NVIDIA container runtime settings
+        - kind: ENV
+          value: NVIDIA_VISIBLE_DEVICES=all
+        - kind: ENV
+          value: NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # disable interactive frontend
+        - kind: ENV
+          value: DEBIAN_FRONTEND=noninteractive
+      # set workdir
+        - kind: WORKDIR
+          value: /opt/nuclio/sam2
+      # install basic deps
+        - kind: RUN
+          value: apt-get update && apt-get -y install curl git python3 python3-pip ffmpeg libsm6 libxext6
+      # install sam2 and its deps (GPU)
+        - kind: RUN
+          value: pip3 install torch torchvision torchaudio
+        - kind: RUN
+          value: pip3 install git+https://github.com/facebookresearch/sam2.git
+        - kind: RUN
+          value: pip3 install numpy opencv-python-headless pycocotools
+      # download sam2.1 weights
+        - kind: RUN
+          value: curl -L -o sam2.1_hiera_base_plus.pt https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt
+      # map pip3 and python3 to pip and python
+        - kind: RUN
+          value: ln -s /usr/bin/pip3 /usr/local/bin/pip && ln -s /usr/bin/python3 /usr/bin/python
+
+  triggers:
+    myHttpTrigger:
+      numWorkers: 1
+      kind: 'http'
+      workerAvailabilityTimeoutMilliseconds: 10000
+      attributes:
+        maxRequestBodySize: 33554432 # 32MB
+  resources:
+    limits:
+      nvidia.com/gpu: 1
+
+  platform:
+    attributes:
+      restartPolicy:
+        name: always
+        maximumRetryCount: 3
+      mountMode: volume
