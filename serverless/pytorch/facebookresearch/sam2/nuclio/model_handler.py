@@ -12,6 +12,7 @@ class ModelHandler:
     def __init__(self):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.sam2_checkpoint = "/opt/nuclio/sam2/sam2.1_hiera_base_plus.pt"
+        self.sam2_finetuned_checkpoint = "/opt/nuclio/sam2.1_hiera_base_plus_cvat.pth"
         self.model_cfg = "configs/sam2.1/sam2.1_hiera_b+.yaml"
 
         sam2_model = build_sam2(
@@ -20,6 +21,7 @@ class ModelHandler:
             device=self.device,
         )
         self.predictor = SAM2ImagePredictor(sam2_model)
+        self.predictor.model.load_state_dict(torch.load(self.sam2_finetuned_checkpoint))
 
     def handle(self, image, pos_points, neg_points, obj_bbox=None, threshold=0.5):
         image_np = np.array(image)
