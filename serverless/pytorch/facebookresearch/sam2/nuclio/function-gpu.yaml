@@ -54,7 +54,7 @@ spec:
           value: pip3 install numpy opencv-python-headless pycocotools
       # download sam2.1 weights
         - kind: RUN
-          value: curl -L -o sam2.1_hiera_base_plus.pt https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt
+          value: curl -L -o sam2.1_hiera_large.pt https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt
       # map pip3 and python3 to pip and python
         - kind: RUN
           value: ln -s /usr/bin/pip3 /usr/local/bin/pip && ln -s /usr/bin/python3 /usr/bin/python
