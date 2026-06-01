@@ -1,0 +1,57 @@
+metadata:
+  name: pth-custom-window-seg
+  namespace: cvat
+  annotations:
+    name: Window Segmentation
+    type: detector
+    spec: |
+      [
+        { "id": 1, "name": "Leerraum", "type": "mask" }
+      ]
+
+spec:
+  description: DeepLabV3-ResNet50 window segmentation model
+  runtime: 'python:3.10'
+  handler: main:handler
+  eventTimeout: 30s
+
+  build:
+    image: cvat.pth.custom.window_seg
+    baseImage: ubuntu:22.04
+
+    directives:
+      preCopy:
+        - kind: ENV
+          value: DEBIAN_FRONTEND=noninteractive
+        - kind: WORKDIR
+          value: /opt/nuclio
+        - kind: RUN
+          value: |-
+            apt-get update \
+            && apt-get install -y --no-install-recommends \
+              python3 python3-pip python-is-python3 \
+              libglib2.0-0 libgl1-mesa-glx \
+            && rm -rf /var/lib/apt/lists/*
+        - kind: RUN
+          value: |-
+            pip install --no-cache-dir \
+              torch torchvision --index-url https://download.pytorch.org/whl/cpu
+        - kind: RUN
+          value: |-
+            pip install --no-cache-dir \
+              numpy Pillow scikit-image opencv-python-headless
+
+  triggers:
+    myHttpTrigger:
+      numWorkers: 1
+      kind: 'http'
+      workerAvailabilityTimeoutMilliseconds: 10000
+      attributes:
+        maxRequestBodySize: 33554432 # 32MB
+
+  platform:
+    attributes:
+      restartPolicy:
+        name: always
+        maximumRetryCount: 3
+      mountMode: volume

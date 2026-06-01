@@ -75,6 +75,7 @@ import SVGConflictIcon from './assets/conflict.svg';
 import SVGShowGroundTruthIcon from './assets/show-gt-icon.svg';
 import SVGJoinIcon from './assets/join-icon.svg';
 import SVGSliceIcon from './assets/slice-icon.svg';
+import SVGWindowSegIcon from './assets/window-seg-icon.svg';
 
 export const CVATIcon = React.memo((): JSX.Element => <SVGCVATIcon />);
 export const CursorIcon = React.memo((): JSX.Element => <SVGCursorIcon />);
@@ -146,3 +147,4 @@ export const ConflictIcon = React.memo((): JSX.Element => <SVGConflictIcon />);
 export const ShowGroundTruthIcon = React.memo((): JSX.Element => <SVGShowGroundTruthIcon />);
 export const JoinIcon = React.memo((): JSX.Element => <SVGJoinIcon />);
 export const SliceIcon = React.memo((): JSX.Element => <SVGSliceIcon />);
+export const WindowSegIcon = React.memo((): JSX.Element => <SVGWindowSegIcon />);

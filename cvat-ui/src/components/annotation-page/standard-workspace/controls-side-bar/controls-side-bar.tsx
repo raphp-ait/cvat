@@ -31,6 +31,7 @@ import MergeControl, { Props as MergeControlProps } from './merge-control';
 import GroupControl, { Props as GroupControlProps } from './group-control';
 import JoinControl, { Props as JoinControlProps } from './join-control';
 import SliceControl, { Props as SliceControlProps } from './slice-control';
+import WindowSegControl from './window-seg-control';
 
 type Label = CombinedState['annotation']['job']['labels'][0];
 
@@ -120,6 +121,7 @@ const ObservedMergeControl = ControlVisibilityObserver<MergeControlProps>(MergeC
 const ObservedGroupControl = ControlVisibilityObserver<GroupControlProps>(GroupControl);
 const ObservedJoinControl = ControlVisibilityObserver<JoinControlProps>(JoinControl);
 const ObservedSliceControl = ControlVisibilityObserver<SliceControlProps>(SliceControl);
+const ObservedWindowSegControl = ControlVisibilityObserver(WindowSegControl);
 
 export default function ControlsSideBarComponent(props: Props): JSX.Element {
     const {
@@ -302,6 +304,7 @@ export default function ControlsSideBarComponent(props: Props): JSX.Element {
             <hr />
             <ObservedToolsControl />
             <ObservedOpenCVControl />
+            <ObservedWindowSegControl />
             {
                 maskControlVisible && (
                     <ObservedDrawMaskControl
