@@ -77,3 +77,5 @@ cvat-ui/dist
 **/!.yarn/releases
 **/!.yarn/sdks
 **/!.yarn/versions
+serverless/pytorch/facebookresearch/sam2/nuclio/sam2.1_hiera_base_plus_cvat_crack.pth
+serverless/pytorch/facebookresearch/sam2/nuclio/sam2.1_hiera_base_plus_cvat_nes.pth
