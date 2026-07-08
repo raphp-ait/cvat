@@ -76,10 +76,12 @@ import SVGShowGroundTruthIcon from './assets/show-gt-icon.svg';
 import SVGJoinIcon from './assets/join-icon.svg';
 import SVGSliceIcon from './assets/slice-icon.svg';
 import SVGWindowSegIcon from './assets/window-seg-icon.svg';
+import SVGMultiSelectIcon from './assets/multiselect-icon.svg';
 
 export const CVATIcon = React.memo((): JSX.Element => <SVGCVATIcon />);
 export const CursorIcon = React.memo((): JSX.Element => <SVGCursorIcon />);
 export const MoveIcon = React.memo((): JSX.Element => <SVGMoveIcon />);
+export const MultiSelectIcon = React.memo((): JSX.Element => <SVGMultiSelectIcon />);
 export const RotateIcon = React.memo((): JSX.Element => <SVGRotateIcon />);
 export const FitIcon = React.memo((): JSX.Element => <SVGFitIcon />);
 export const ZoomIcon = React.memo((): JSX.Element => <SVGZoomIcon />);

@@ -1974,7 +1974,9 @@ export class CanvasViewImpl implements CanvasView, Listener {
         } else if (reason === UpdateReasons.IMAGE_MOVED) {
             this.moveCanvas();
         } else if (reason === UpdateReasons.OBJECTS_UPDATED) {
-            this.objectSelector.resetSelected();
+            if (this.mode !== Mode.MULTISELECT) {
+                this.objectSelector.resetSelected();
+            }
             this.setupObjects(this.controller.objects);
             if (this.mode === Mode.MERGE) {
                 this.mergeHandler.repeatSelection();
@@ -2156,6 +2158,29 @@ export class CanvasViewImpl implements CanvasView, Listener {
                     objectType: ['shape'],
                 });
             }
+        } else if (reason === UpdateReasons.MULTISELECT) {
+            const { enabled } = this.controller.multiselectData;
+            if (enabled) {
+                this.mode = Mode.MULTISELECT;
+                this.onMessage([{
+                    type: 'text',
+                    icon: 'info',
+                    content: 'Click or drag to select masks. Click selected mask to deselect. Press Esc to cancel.',
+                }], 'multiselect');
+                this.objectSelector.enable((selected: any[]) => {
+                    this.canvas.dispatchEvent(new CustomEvent('canvas.multiselected', {
+                        bubbles: false,
+                        cancelable: true,
+                        detail: { states: selected },
+                    }));
+                }, { intersect: false });
+            } else {
+                this.objectSelector.disable();
+                this.mode = Mode.IDLE;
+                this.onMessage(null, 'multiselect');
+            }
+        } else if (reason === UpdateReasons.CLEAR_MULTISELECTION) {
+            this.objectSelector.resetSelected();
         } else if (reason === UpdateReasons.SLICE) {
             const data = this.controller.sliceData;
             if (data.enabled && this.mode === Mode.IDLE) {
@@ -2184,6 +2209,10 @@ export class CanvasViewImpl implements CanvasView, Listener {
                 this.splitHandler.cancel();
             } else if (this.mode === Mode.GROUP || this.mode === Mode.JOIN) {
                 this.groupHandler.cancel();
+            } else if (this.mode === Mode.MULTISELECT) {
+                this.objectSelector.disable();
+                this.mode = Mode.IDLE;
+                this.onMessage(null, 'multiselect');
             } else if (this.mode === Mode.SLICE) {
                 this.sliceHandler.cancel();
             } else if (this.mode === Mode.SELECT_REGION) {
@@ -2650,13 +2679,14 @@ export class CanvasViewImpl implements CanvasView, Listener {
                 }
             }
 
-            this.svgShapes[state.clientID].on('click.canvas', (): void => {
+            this.svgShapes[state.clientID].on('click.canvas', (e: MouseEvent): void => {
                 this.canvas.dispatchEvent(
                     new CustomEvent('canvas.clicked', {
                         bubbles: false,
                         cancelable: true,
                         detail: {
                             state,
+                            ctrlKey: e.ctrlKey,
                         },
                     }),
                 );

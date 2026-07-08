@@ -127,6 +127,7 @@ const defaultState: AnnotationState = {
         collapsed: {},
         collapsedAll: true,
         states: [],
+        selectedStateIDs: [],
         filters: [],
         resetGroupFlag: false,
         initialized: false,
@@ -376,6 +377,7 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                     ...state.annotations,
                     activatedStateID: updateActivatedStateID(states, activatedStateID),
                     highlightedConflict: null,
+                    selectedStateIDs: [],
                     states,
                     history,
                     zLayer: {
@@ -587,12 +589,15 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
         }
         case AnnotationActionTypes.UPDATE_ACTIVE_CONTROL: {
             const { activeControl } = action.payload;
+            const leavingMultiselect = state.canvas.activeControl === ActiveControl.MULTISELECT &&
+                activeControl !== ActiveControl.MULTISELECT;
 
             return {
                 ...state,
                 annotations: {
                     ...state.annotations,
                     activatedStateID: null,
+                    ...(leavingMultiselect ? { selectedStateIDs: [] } : {}),
                 },
                 canvas: {
                     ...state.canvas,
@@ -676,6 +681,16 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
                     activatedStateID,
                     activatedElementID,
                     activatedAttributeID,
+                },
+            };
+        }
+        case AnnotationActionTypes.SELECT_OBJECTS: {
+            const { stateIDs } = action.payload;
+            return {
+                ...state,
+                annotations: {
+                    ...state.annotations,
+                    selectedStateIDs: stateIDs,
                 },
             };
         }
@@ -1078,8 +1093,13 @@ export default (state = defaultState, action: AnyAction): AnnotationState => {
             };
         }
         case AnnotationActionTypes.RESET_CANVAS: {
+            const leavingMultiselect = state.canvas.activeControl === ActiveControl.MULTISELECT;
             return {
                 ...state,
+                annotations: {
+                    ...state.annotations,
+                    ...(leavingMultiselect ? { selectedStateIDs: [] } : {}),
+                },
                 canvas: {
                     ...state.canvas,
                     activeControl: ActiveControl.CURSOR,

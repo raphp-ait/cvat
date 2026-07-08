@@ -777,6 +777,7 @@ export enum ActiveControl {
     SPLIT = 'split',
     SLICE = 'slice',
     EDIT = 'edit',
+    MULTISELECT = 'multiselect',
     OPEN_ISSUE = 'open_issue',
     AI_TOOLS = 'ai_tools',
     PHOTO_CONTEXT = 'PHOTO_CONTEXT',
@@ -898,6 +899,7 @@ export interface AnnotationState {
         collapsed: Record<number, boolean>;
         collapsedAll: boolean;
         states: any[];
+        selectedStateIDs: number[];
         filters: object[];
         resetGroupFlag: boolean;
         initialized: boolean;

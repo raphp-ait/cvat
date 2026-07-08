@@ -11,6 +11,7 @@ import { StatesOrdering, Workspace } from 'reducers';
 import ObjectItemContainer from 'containers/annotation-page/standard-workspace/objects-side-bar/object-item';
 import { ObjectState } from 'cvat-core-wrapper';
 import ObjectListHeader from './objects-list-header';
+import MultiSelectPanel from './multiselect-panel';
 
 interface Props {
     workspace: Workspace;
@@ -58,6 +59,7 @@ function ObjectListComponent(props: Props): JSX.Element {
     let latestZOrder: number | null = null;
     return (
         <>
+            <MultiSelectPanel />
             <ObjectListHeader
                 workspace={workspace}
                 statesHidden={statesHidden}

@@ -177,6 +177,7 @@ export enum AnnotationActionTypes {
     UPDATE_BRUSH_TOOLS_CONFIG = 'UPDATE_BRUSH_TOOLS_CONFIG',
     HIGHLIGHT_CONFLICT = 'HIGHLIGHT_CONFCLICT',
     HOVERED_CHAPTER = 'HOVERED_CHAPTER',
+    SELECT_OBJECTS = 'SELECT_OBJECTS',
 }
 
 export function setHoveredChapter(id: number | null): AnyAction {
@@ -614,6 +615,13 @@ export function activateObject(
             activatedElementID,
             activatedAttributeID,
         },
+    };
+}
+
+export function selectObjects(stateIDs: number[]): AnyAction {
+    return {
+        type: AnnotationActionTypes.SELECT_OBJECTS,
+        payload: { stateIDs },
     };
 }
 
@@ -1222,6 +1230,23 @@ export function updateAnnotationsAsync(statesToUpdate: any[]): ThunkAction {
                 payload: { error },
             });
             dispatch(fetchAnnotationsAsync());
+        }
+    };
+}
+
+export function changeSelectedAnnotationsLabelAsync(label: any): ThunkAction {
+    return async (dispatch: ThunkDispatch, getState): Promise<void> => {
+        const state = getState();
+        const { selectedStateIDs, states } = state.annotation.annotations;
+        if (!selectedStateIDs || selectedStateIDs.length === 0) return;
+
+        const statesToUpdate = states.filter((s: any) => selectedStateIDs.includes(s.clientID));
+        statesToUpdate.forEach((s: any) => {
+            s.label = label;
+        });
+
+        if (statesToUpdate.length > 0) {
+            await dispatch(updateAnnotationsAsync(statesToUpdate));
         }
     };
 }

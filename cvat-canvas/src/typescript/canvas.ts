@@ -41,6 +41,8 @@ interface Canvas {
     split(splitData: SplitData): void;
     merge(mergeData: MergeData): void;
     select(objectState: any): void;
+    multiselect(enable: boolean): void;
+    clearMultiselection(): void;
 
     fitCanvas(): void;
     bitmap(enable: boolean): void;
@@ -166,6 +168,14 @@ class CanvasImpl implements Canvas {
 
     public select(objectState: any): void {
         this.model.select(objectState);
+    }
+
+    public multiselect(enable: boolean): void {
+        this.model.multiselect(enable);
+    }
+
+    public clearMultiselection(): void {
+        this.model.clearMultiselection();
     }
 
     public mode(): Mode {

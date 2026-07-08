@@ -48,6 +48,7 @@ import {
     canvasErrorOccurred,
     updateEditedStateAsync,
     collapseObjectItems,
+    selectObjects,
 } from 'actions/annotation-actions';
 import {
     switchGrid,
@@ -123,6 +124,7 @@ interface StateToProps {
     imageFilters: ImageFilter[];
     activeControl: ActiveControl;
     activeObjectHidden: boolean;
+    selectedStateIDs: number[];
 }
 
 interface DispatchToProps {
@@ -152,6 +154,7 @@ interface DispatchToProps {
     onCanvasErrorOccurred(error: Error): void;
     onStartIssue(position: number[]): void;
     onUpdateEditedObject(editedState: ObjectState | null): void;
+    onSelectObjects(stateIDs: number[]): void;
 }
 
 function mapStateToProps(state: CombinedState): StateToProps {
@@ -173,6 +176,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
                 activatedAttributeID,
                 zLayer: { cur: curZLayer, min: minZLayer, max: maxZLayer },
                 highlightedConflict,
+                selectedStateIDs,
             },
             workspace,
         },
@@ -266,6 +270,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         highlightedConflict,
         imageFilters,
         activeObjectHidden,
+        selectedStateIDs,
     };
 }
 
@@ -375,6 +380,9 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
         },
         onUpdateEditedObject(editedState: ObjectState | null): void {
             dispatch(updateEditedStateAsync(editedState));
+        },
+        onSelectObjects(stateIDs: number[]): void {
+            dispatch(selectObjects(stateIDs));
         },
     };
 }
@@ -632,6 +640,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         canvasInstance.html().removeEventListener('canvas.merged', this.onCanvasObjectsMerged);
         canvasInstance.html().removeEventListener('canvas.grouped', this.onCanvasObjectsGrouped);
         canvasInstance.html().removeEventListener('canvas.joined', this.onCanvasObjectsJoined);
+        canvasInstance.html().removeEventListener('canvas.multiselected', this.onCanvasObjectsMultiSelected);
         canvasInstance.html().removeEventListener('canvas.regionselected', this.onCanvasPositionSelected);
         canvasInstance.html().removeEventListener('canvas.splitted', this.onCanvasTrackSplitted);
 
@@ -741,6 +750,12 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         onJoinAnnotations(states, points);
     };
 
+    private onCanvasObjectsMultiSelected = (event: any): void => {
+        const { onSelectObjects } = this.props;
+        const { states } = event.detail;
+        onSelectObjects(states.map((s: any) => s.clientID));
+    };
+
     private onCanvasTrackSplitted = (event: any): void => {
         const {
             jobInstance, onSplitAnnotations, updateActiveControl,
@@ -808,8 +823,23 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
     };
 
     private onCanvasShapeClicked = (e: any): void => {
-        const { onExpandObject } = this.props;
-        scrollAndExpandState(e.detail.state, onExpandObject);
+        const {
+            onExpandObject, onSelectObjects, activeControl, selectedStateIDs,
+        } = this.props;
+        const { state, ctrlKey } = e.detail;
+
+        if (ctrlKey && activeControl === ActiveControl.CURSOR) {
+            // Ctrl+click in IDLE mode: toggle in multi-selection
+            const clientID = state.clientID;
+            const idx = selectedStateIDs.indexOf(clientID);
+            const newSelected = idx >= 0
+                ? selectedStateIDs.filter((id: number) => id !== clientID)
+                : [...selectedStateIDs, clientID];
+            onSelectObjects(newSelected);
+            return;
+        }
+
+        scrollAndExpandState(state, onExpandObject);
     };
 
     private onCanvasShapeDeactivated = (e: any): void => {
@@ -1088,6 +1118,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         canvasInstance.html().addEventListener('canvas.merged', this.onCanvasObjectsMerged);
         canvasInstance.html().addEventListener('canvas.grouped', this.onCanvasObjectsGrouped);
         canvasInstance.html().addEventListener('canvas.joined', this.onCanvasObjectsJoined);
+        canvasInstance.html().addEventListener('canvas.multiselected', this.onCanvasObjectsMultiSelected);
         canvasInstance.html().addEventListener('canvas.regionselected', this.onCanvasPositionSelected);
         canvasInstance.html().addEventListener('canvas.splitted', this.onCanvasTrackSplitted);
 

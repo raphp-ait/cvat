@@ -38,6 +38,7 @@ export interface CanvasController {
     readonly groupData: GroupData;
     readonly joinData: JoinData;
     readonly sliceData: SliceData;
+    readonly multiselectData: { enabled: boolean };
     readonly selected: any;
     readonly configuration: Configuration;
     mode: Mode;
@@ -168,6 +169,10 @@ export class CanvasControllerImpl implements CanvasController {
 
     public get sliceData(): SliceData {
         return this.model.sliceData;
+    }
+
+    public get multiselectData(): { enabled: boolean } {
+        return this.model.multiselectData;
     }
 
     public get selected(): any {

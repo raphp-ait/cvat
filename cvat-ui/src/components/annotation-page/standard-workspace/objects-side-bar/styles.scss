@@ -214,6 +214,15 @@
     }
 }
 
+.cvat-multiselect-panel {
+    margin: 4px 8px;
+    border-radius: 4px;
+
+    .ant-alert-message {
+        width: 100%;
+    }
+}
+
 .cvat-objects-sidebar-z-layer-mark {
     text-align: center;
 }

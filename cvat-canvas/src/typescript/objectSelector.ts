@@ -11,6 +11,7 @@ export interface SelectionFilter {
     objectType?: string[];
     shapeType?: string[];
     maxCount?: number;
+    intersect?: boolean;
 }
 
 export interface ObjectSelector {
@@ -73,6 +74,9 @@ export class ObjectSelectorImpl implements ObjectSelector {
     }
 
     private filterObjects(states: ObjectState[]): ObjectState[] {
+        if (!this.selectionFilter) {
+            return states;
+        }
         let count = Object.keys(this.selectedObjects).length;
         const maxCount = this.selectionFilter.maxCount || Number.MAX_SAFE_INTEGER;
         const filtered = [];
@@ -111,16 +115,16 @@ export class ObjectSelectorImpl implements ObjectSelector {
             );
 
             let newStates = [];
+            const useIntersect = this.selectionFilter?.intersect;
             for (const shape of shapes) {
                 const bbox = shape.bbox();
                 const clientID = shape.attr('clientID');
-                if (
-                    bbox.x > box.xtl &&
-                    bbox.y > box.ytl &&
-                    bbox.x + bbox.width < box.xbr &&
-                    bbox.y + bbox.height < box.ybr &&
-                    !(clientID in this.selectedObjects)
-                ) {
+                const inBox = useIntersect
+                    ? (bbox.x < box.xbr && bbox.x + bbox.width > box.xtl &&
+                       bbox.y < box.ybr && bbox.y + bbox.height > box.ytl)
+                    : (bbox.x >= box.xtl && bbox.y >= box.ytl &&
+                       bbox.x + bbox.width <= box.xbr && bbox.y + bbox.height <= box.ybr);
+                if (inBox && !(clientID in this.selectedObjects)) {
                     const objectState = states.find((state: ObjectState): boolean => state.clientID === clientID);
                     if (objectState) {
                         newStates.push(objectState);

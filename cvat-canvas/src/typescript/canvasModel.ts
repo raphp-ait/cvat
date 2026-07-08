@@ -213,6 +213,8 @@ export enum UpdateReasons {
     CANCEL = 'cancel',
     BITMAP = 'bitmap',
     SELECT_REGION = 'select_region',
+    MULTISELECT = 'multiselect',
+    CLEAR_MULTISELECTION = 'clear_multiselection',
     DRAG_CANVAS = 'drag_canvas',
     ZOOM_CANVAS = 'zoom_canvas',
     CONFIG_UPDATED = 'config_updated',
@@ -231,6 +233,7 @@ export enum Mode {
     GROUP = 'group',
     JOIN = 'join',
     SLICE = 'slice',
+    MULTISELECT = 'multiselect',
     INTERACT = 'interact',
     SELECT_REGION = 'select_region',
     DRAG_CANVAS = 'drag_canvas',
@@ -256,6 +259,7 @@ export interface CanvasModel {
     readonly groupData: GroupData;
     readonly joinData: JoinData;
     readonly sliceData: SliceData;
+    readonly multiselectData: { enabled: boolean };
     readonly configuration: Configuration;
     readonly selected: any;
     geometry: Geometry;
@@ -282,6 +286,8 @@ export interface CanvasModel {
     split(splitData: SplitData): void;
     merge(mergeData: MergeData): void;
     select(objectState: any): void;
+    multiselect(enable: boolean): void;
+    clearMultiselection(): void;
     interact(interactionData: InteractionData): void;
 
     fitCanvas(width: number, height: number): void;
@@ -319,6 +325,9 @@ const defaultData = {
         enabled: false,
     },
     sliceData: {
+        enabled: false,
+    },
+    multiselectData: {
         enabled: false,
     },
 };
@@ -375,6 +384,7 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
         groupData: GroupData;
         joinData: JoinData;
         sliceData: SliceData;
+        multiselectData: { enabled: boolean };
         splitData: SplitData;
         selected: any;
         mode: Mode;
@@ -934,6 +944,29 @@ export class CanvasModelImpl extends MasterImpl implements CanvasModel {
         this.data.selected = objectState;
         this.notify(UpdateReasons.SELECT);
         this.data.selected = null;
+    }
+
+    public multiselect(enable: boolean): void {
+        if (![Mode.IDLE, Mode.MULTISELECT].includes(this.data.mode)) {
+            throw Error(`Canvas is busy. Action: ${this.data.mode}`);
+        }
+
+        if (this.data.multiselectData.enabled === enable) {
+            return;
+        }
+
+        this.data.multiselectData = { enabled: enable };
+        this.notify(UpdateReasons.MULTISELECT);
+    }
+
+    public clearMultiselection(): void {
+        if (this.data.mode === Mode.MULTISELECT) {
+            this.notify(UpdateReasons.CLEAR_MULTISELECTION);
+        }
+    }
+
+    public get multiselectData(): { enabled: boolean } {
+        return { ...this.data.multiselectData };
     }
 
     public configure(configuration: Configuration): void {
