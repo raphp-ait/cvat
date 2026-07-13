@@ -1,8 +1,8 @@
 services:
   webhook:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: custom/webhook/Dockerfile
     container_name: cvat-webhook
     network_mode: host
     environment:

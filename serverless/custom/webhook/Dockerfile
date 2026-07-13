@@ -16,14 +16,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
-COPY requirements.txt .
+COPY custom/webhook/requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
-COPY app.py .
-COPY window_seg_inference.py .
+COPY custom/webhook/app.py .
+COPY custom/webhook/window_seg_inference.py .
+COPY pytorch/custom/window_seg/nuclio/window_inference_shared.py .
 
 # Create logs directory
 RUN mkdir -p /app/logs
