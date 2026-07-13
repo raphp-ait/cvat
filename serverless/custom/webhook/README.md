@@ -1,20 +1,23 @@
 # CVAT Webhook Service
 
-Webhook receiver + task processor for automatic window-segmentation mask upload to CVAT.
+Webhook receiver + task processor for automatic two-step window inference:
+1) segment window region
+2) classify segmented window into material class
 
 ## What It Does
 
 - Accepts CVAT webhook events at `/webhook/task-created`
 - Processes only `create:task` events
 - Ignores update events to avoid duplicate processing
-- Runs segmentation on task frames and uploads mask annotations
+- Runs segmentation + classification on task frames and uploads class-specific mask annotations
 - Supports manual processing endpoint at `/webhook/process`
 
 ## Prerequisites
 
 - Docker with the `docker compose` plugin
 - Reachable CVAT instance
-- Window segmentation checkpoint file (default local path: `./window_seg_best.pth`)
+- Window segmentation checkpoint file (default host path: `../../pytorch/custom/window_seg/nuclio/window_seg_best.pth`)
+- Window classifier checkpoint file (default host path: `../../pytorch/custom/window_seg/nuclio/window_cls_best.pth`)
 
 ## Quick Start
 
@@ -40,7 +43,8 @@ CVAT_URL=http://localhost:8080
 CVAT_USERNAME=admin
 CVAT_PASSWORD=your_password_here
 WEBHOOK_SECRET=your_secret_key_here
-WINDOW_SEG_CHECKPOINT_HOST=./window_seg_best.pth
+WINDOW_SEG_CHECKPOINT_HOST=../../pytorch/custom/window_seg/nuclio/window_seg_best.pth
+WINDOW_CLS_CHECKPOINT_HOST=../../pytorch/custom/window_seg/nuclio/window_cls_best.pth
 SEGMENTATION_THRESHOLD=0.5
 ```
 

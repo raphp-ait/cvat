@@ -36,7 +36,8 @@ WEBHOOK_SECRET=your_secret_key_here
 WEBHOOK_PORT=5000
 
 # Model Configuration
-WINDOW_SEG_CHECKPOINT_HOST=./window_seg_best.pth
+WINDOW_SEG_CHECKPOINT_HOST=../../pytorch/custom/window_seg/nuclio/window_seg_best.pth
+WINDOW_CLS_CHECKPOINT_HOST=../../pytorch/custom/window_seg/nuclio/window_cls_best.pth
 SEGMENTATION_THRESHOLD=0.5
 EOF
             echo "✓ Created .env file"
@@ -116,10 +117,16 @@ EOF
             echo ""
         fi
         
-        # Check checkpoint
-        CHECKPOINT="${WINDOW_SEG_CHECKPOINT:-./window_seg_best.pth}"
+        # Check checkpoints
+        CHECKPOINT="${WINDOW_SEG_CHECKPOINT:-../../pytorch/custom/window_seg/nuclio/window_seg_best.pth}"
         if [ ! -f "$CHECKPOINT" ]; then
             echo "❌ ERROR: Model checkpoint not found: $CHECKPOINT"
+            exit 1
+        fi
+
+        CLASSIFIER_CHECKPOINT="${WINDOW_CLS_CHECKPOINT:-../../pytorch/custom/window_seg/nuclio/window_cls_best.pth}"
+        if [ ! -f "$CLASSIFIER_CHECKPOINT" ]; then
+            echo "❌ ERROR: Classifier checkpoint not found: $CLASSIFIER_CHECKPOINT"
             exit 1
         fi
         

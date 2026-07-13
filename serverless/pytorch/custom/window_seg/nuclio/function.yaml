@@ -2,15 +2,29 @@ metadata:
   name: pth-custom-window-seg
   namespace: cvat
   annotations:
-    name: Window Segmentation
+    name: Window Segmentation + Classification
     type: detector
     spec: |
       [
-        { "id": 1, "name": "Leerraum", "type": "mask" }
+        { "id": 1, "name": "Aluminium", "type": "mask" },
+        { "id": 2, "name": "Bauschutt", "type": "mask" },
+        { "id": 3, "name": "Beton", "type": "mask" },
+        { "id": 4, "name": "Erde", "type": "mask" },
+        { "id": 5, "name": "Feuerfest Zement", "type": "mask" },
+        { "id": 6, "name": "Filterkerzenbruch", "type": "mask" },
+        { "id": 7, "name": "Glas", "type": "mask" },
+        { "id": 8, "name": "Kalk", "type": "mask" },
+        { "id": 9, "name": "Keramik", "type": "mask" },
+        { "id": 10, "name": "Metall", "type": "mask" },
+        { "id": 11, "name": "Metall Eisen", "type": "mask" },
+        { "id": 12, "name": "Mineralwolle", "type": "mask" },
+        { "id": 13, "name": "Schamott", "type": "mask" },
+        { "id": 14, "name": "Schlamm", "type": "mask" },
+        { "id": 15, "name": "Schotter/Sand", "type": "mask" }
       ]
 
 spec:
-  description: DeepLabV3-ResNet50 window segmentation model
+  description: DeepLabV3-ResNet50 window segmentation with ResNet18 window classification
   runtime: 'python:3.10'
   handler: main:handler
   eventTimeout: 30s

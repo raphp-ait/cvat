@@ -6,10 +6,28 @@ import numpy as np
 import torch
 from PIL import Image
 from torchvision import transforms
+from torchvision.models import resnet18
 from torchvision.models.segmentation import deeplabv3_resnet50
 
 
 DEFAULT_THRESHOLD = 0.5
+DEFAULT_WINDOW_CLASSES = [
+    "Aluminium",
+    "Bauschutt",
+    "Beton",
+    "Erde",
+    "Feuerfest Zement",
+    "Filterkerzenbruch",
+    "Glas",
+    "Kalk",
+    "Keramik",
+    "Metall",
+    "Metall Eisen",
+    "Mineralwolle",
+    "Schamott",
+    "Schlamm",
+    "Schotter/Sand",
+]
 
 
 class WindowSegInference:
@@ -18,6 +36,7 @@ class WindowSegInference:
     def __init__(
         self,
         checkpoint_path: str | None = None,
+        classifier_checkpoint_path: str | None = None,
         threshold: float = DEFAULT_THRESHOLD,
         image_size: int = 512,
         device: str | None = None,
@@ -30,18 +49,41 @@ class WindowSegInference:
         if checkpoint_path is None:
             checkpoint_path = os.getenv("WINDOW_SEG_CHECKPOINT", "/app/window_seg_best.pth")
 
+        if classifier_checkpoint_path is None:
+            classifier_checkpoint_path = os.getenv("WINDOW_CLS_CHECKPOINT", "/app/window_cls_best.pth")
+
         self.checkpoint_path = self._resolve_checkpoint_path(Path(checkpoint_path))
+        self.classifier_checkpoint_path = self._resolve_checkpoint_path(
+            Path(classifier_checkpoint_path),
+            candidate_names=["window_cls_best.pth"],
+        )
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
         self.model = self._build_model()
+        self.classifier, self.class_names = self._build_classifier()
         self.transform = transforms.Compose(
             [
                 transforms.Resize((self.image_size, self.image_size)),
                 transforms.ToTensor(),
             ]
         )
+        self.classifier_preprocess = transforms.Compose(
+            [
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225],
+                ),
+            ]
+        )
 
-    def _resolve_checkpoint_path(self, checkpoint_path: Path) -> Path:
+    def _resolve_checkpoint_path(
+        self,
+        checkpoint_path: Path,
+        candidate_names: list[str] | None = None,
+    ) -> Path:
         def resolve_file_or_dir(path: Path) -> Path | None:
             if path.is_file():
                 return path
@@ -55,6 +97,7 @@ class WindowSegInference:
 
         module_dir = Path(__file__).resolve().parent
         candidates = [checkpoint_path]
+        candidate_names = candidate_names or ["window_seg_best.pth"]
 
         if not checkpoint_path.is_absolute():
             candidates.extend(
@@ -65,16 +108,17 @@ class WindowSegInference:
             )
 
         # Common local paths for this repository layout.
-        candidates.extend(
-            [
-                module_dir / "window_seg_best.pth",
-                module_dir / "window_seg_best.pth" / "window_seg_best.pth",
-                module_dir.parent.parent / "pytorch/custom/window_seg/nuclio/window_seg_best.pth",
-                Path.cwd() / "cvat/serverless/pytorch/custom/window_seg/nuclio/window_seg_best.pth",
-                Path.cwd() / "cvat/serverless/custom/webhook/window_seg_best.pth",
-                Path.cwd() / "cvat/serverless/custom/webhook/window_seg_best.pth/window_seg_best.pth",
-            ]
-        )
+        for candidate_name in candidate_names:
+            candidates.extend(
+                [
+                    module_dir / candidate_name,
+                    module_dir / candidate_name / candidate_name,
+                    module_dir.parent.parent / f"pytorch/custom/window_seg/nuclio/{candidate_name}",
+                    Path.cwd() / f"cvat/serverless/pytorch/custom/window_seg/nuclio/{candidate_name}",
+                    Path.cwd() / f"cvat/serverless/custom/webhook/{candidate_name}",
+                    Path.cwd() / f"cvat/serverless/custom/webhook/{candidate_name}/{candidate_name}",
+                ]
+            )
 
         # Preserve order while deduplicating.
         unique_candidates = []
@@ -113,6 +157,42 @@ class WindowSegInference:
         model.to(self.device)
         model.eval()
         return model
+
+    def _build_classifier(self):
+        checkpoint = torch.load(
+            str(self.classifier_checkpoint_path),
+            map_location=self.device,
+            weights_only=False,
+        )
+
+        if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+            state_dict = checkpoint["state_dict"]
+            class_names = checkpoint.get("classes") or DEFAULT_WINDOW_CLASSES
+        else:
+            state_dict = checkpoint
+            class_names = DEFAULT_WINDOW_CLASSES
+
+        class_names = [str(name) for name in class_names]
+        model = resnet18(weights=None)
+        model.fc = torch.nn.Linear(model.fc.in_features, len(class_names))
+        model.load_state_dict(state_dict)
+        model.to(self.device)
+        model.eval()
+        return model, class_names
+
+    @staticmethod
+    def _crop_and_mask_from_window(image_np: np.ndarray, window_mask: np.ndarray) -> np.ndarray:
+        ys, xs = np.where(window_mask > 0)
+        if len(ys) == 0 or len(xs) == 0:
+            return image_np
+
+        y1, y2 = int(ys.min()), int(ys.max())
+        x1, x2 = int(xs.min()), int(xs.max())
+
+        crop = image_np[y1 : y2 + 1, x1 : x2 + 1].copy()
+        crop_mask = window_mask[y1 : y2 + 1, x1 : x2 + 1]
+        crop[crop_mask == 0] = 0
+        return crop
 
     @staticmethod
     def _to_cvat_rle(mask: np.ndarray) -> list[float]:
@@ -172,11 +252,25 @@ class WindowSegInference:
         if not cvat_mask:
             return []
 
+        roi = self._crop_and_mask_from_window(np.array(rgb_image), binary_mask)
+        roi_pil = Image.fromarray(roi)
+        cls_input = self.classifier_preprocess(roi_pil).unsqueeze(0).to(self.device)
+
+        with torch.no_grad():
+            cls_logits = self.classifier(cls_input)
+            cls_probs = torch.softmax(cls_logits, dim=1)[0].detach().cpu().numpy()
+
+        pred_idx = int(np.argmax(cls_probs))
+        pred_label = self.class_names[pred_idx]
+        class_confidence = float(cls_probs[pred_idx])
+
         region_confidence = float(window_prob_resized[binary_mask > 0].mean())
         return [
             {
-                "confidence": str(region_confidence),
-                "label": self.label_name,
+                "confidence": str(region_confidence * class_confidence),
+                "segmentation_confidence": str(region_confidence),
+                "classification_confidence": str(class_confidence),
+                "label": pred_label,
                 "mask": cvat_mask,
                 "type": "mask",
             }

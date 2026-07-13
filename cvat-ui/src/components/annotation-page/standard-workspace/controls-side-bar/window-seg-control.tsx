@@ -24,6 +24,11 @@ import CVATTooltip from 'components/common/cvat-tooltip';
 const core = getCore();
 
 const WINDOW_SEG_MODEL_NAME = 'Window Segmentation';
+const WINDOW_SEG_MODEL_NAME_V2 = 'Window Segmentation + Classification';
+
+function normalizeLabelName(name: string): string {
+    return name.trim().toLowerCase().replace(/\s+/g, ' ');
+}
 
 interface StateToProps {
     detectors: MLModel[];
@@ -79,29 +84,45 @@ function WindowSegControl(props: Props): JSX.Element | null {
     } = props;
     const [fetching, setFetching] = useState(false);
 
-    const windowSegModel = detectors.find((model) => model.name === WINDOW_SEG_MODEL_NAME);
+    const windowSegModel = detectors.find((model) => {
+        const normalizedName = model.name.trim().toLowerCase();
+        return model.name === WINDOW_SEG_MODEL_NAME ||
+            model.name === WINDOW_SEG_MODEL_NAME_V2 ||
+            normalizedName.includes('window segmentation');
+    });
 
-    // Find a matching "window" label in the current task
-    const windowLabel = labels.find((label) => label.name === 'Leerraum');
+    const taskLabelsByName = new Map(labels.map((label) => [normalizeLabelName(label.name), label]));
+    const labelMapping = windowSegModel ? Object.fromEntries(
+        windowSegModel.labels
+            .map((modelLabel) => {
+                const taskLabel = taskLabelsByName.get(normalizeLabelName(modelLabel.name));
+                if (!taskLabel) {
+                    return null;
+                }
+
+                return [
+                    modelLabel.name,
+                    {
+                        name: taskLabel.name,
+                        attributes: {},
+                    },
+                ];
+            })
+            .filter((entry): entry is [string, { name: string; attributes: Record<string, string> }] => entry !== null),
+    ) : {};
+    const hasCompatibleLabels = Object.keys(labelMapping).length > 0;
 
     const handleClick = useCallback(async () => {
-        if (!windowSegModel || !windowLabel || fetching) return;
+        if (!windowSegModel || !hasCompatibleLabels || fetching) return;
 
         try {
             setFetching(true);
-
-            const mapping = {
-                Leerraum: {
-                    name: windowLabel.name,
-                    attributes: {},
-                },
-            };
 
             const result = await core.lambda.call(jobInstance.taskId, windowSegModel, {
                 type: 'annotate_frame',
                 frame,
                 job: jobInstance.id,
-                mapping,
+                mapping: labelMapping,
                 conv_mask_to_poly: false,
             }) as { version: number; shapes: any[]; tags: any[] };
 
@@ -148,14 +169,14 @@ function WindowSegControl(props: Props): JSX.Element | null {
         } finally {
             setFetching(false);
         }
-    }, [windowSegModel, windowLabel, fetching, jobInstance, frame, curZOrder, createAnnotations, fetchAnnotations]);
+    }, [windowSegModel, hasCompatibleLabels, fetching, jobInstance, frame, curZOrder, createAnnotations, fetchAnnotations, labelMapping]);
 
     if (!windowSegModel) return null;
 
-    const disabled = !windowLabel || frameIsDeleted;
+    const disabled = !hasCompatibleLabels || frameIsDeleted;
     let tooltipMessage = 'Run window segmentation on current frame';
-    if (!windowLabel) {
-        tooltipMessage = 'No "Leerraum" label found in this task. Add a label named "Leerraum" to use this tool.';
+    if (!hasCompatibleLabels) {
+        tooltipMessage = 'No matching labels found between this task and the window model.';
     }
 
     return (

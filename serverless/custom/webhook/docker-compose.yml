@@ -11,10 +11,12 @@ services:
       - CVAT_PASSWORD=${CVAT_PASSWORD}
       - WEBHOOK_SECRET=${WEBHOOK_SECRET:-cvat_webhook_secret}
       - WINDOW_SEG_CHECKPOINT=/app/window_seg_best.pth
+      - WINDOW_CLS_CHECKPOINT=/app/window_cls_best.pth
       - SEGMENTATION_THRESHOLD=${SEGMENTATION_THRESHOLD:-0.5}
     volumes:
       # Mount the model checkpoint
       - ${WINDOW_SEG_CHECKPOINT_HOST:-./window_seg_best.pth}:/app/window_seg_best.pth:ro
+      - ${WINDOW_CLS_CHECKPOINT_HOST:-./window_cls_best.pth}:/app/window_cls_best.pth:ro
       # Shared logs
       - ./logs:/app/logs
     restart: unless-stopped

@@ -25,6 +25,12 @@ if [ ! -f "$NUCLIO_DIR/window_seg_best.pth" ]; then
     exit 1
 fi
 
+if [ ! -f "$NUCLIO_DIR/window_cls_best.pth" ]; then
+    echo "ERROR: window_cls_best.pth not found in $NUCLIO_DIR"
+    echo "Please copy your classifier checkpoint there first."
+    exit 1
+fi
+
 # Create project if it doesn't exist
 nuctl create project cvat --platform local 2>/dev/null || true
 

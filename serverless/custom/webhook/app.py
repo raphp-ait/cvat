@@ -54,11 +54,14 @@ JOB_WAIT_POLL_INTERVAL_SECONDS = float(os.getenv("JOB_WAIT_POLL_INTERVAL_SECONDS
 
 def _build_inference_model() -> WindowSegInference:
     checkpoint_path = os.getenv("WINDOW_SEG_CHECKPOINT", "/app/window_seg_best.pth")
+    classifier_checkpoint_path = os.getenv("WINDOW_CLS_CHECKPOINT", "/app/window_cls_best.pth")
     model = WindowSegInference(
         checkpoint_path=checkpoint_path,
+        classifier_checkpoint_path=classifier_checkpoint_path,
         threshold=CONFIDENCE_THRESHOLD,
     )
     logger.info(f"Window segmentation model loaded from: {model.checkpoint_path}")
+    logger.info(f"Window classifier model loaded from: {model.classifier_checkpoint_path}")
     return model
 
 
@@ -145,9 +148,9 @@ class TaskProcessor:
             
             logger.info(f"Task: {task.name}, Status: {task.status}")
             
-            # Get or create label
-            label = self._get_or_create_label(task_id)
-            if not label:
+            # Load task label mapping for classifier outputs
+            labels_payload = self._get_task_labels(task_id)
+            if not labels_payload:
                 return {"status": "failed", "error": "Could not get or create label"}
             
             # Get jobs for this task
@@ -179,7 +182,11 @@ class TaskProcessor:
                         
                         try:
                             pil_image = self._get_image(job.id, frame_number)
-                            annotations = self._process_image(pil_image, frame_number, label.id)
+                            annotations = self._process_image(
+                                pil_image,
+                                frame_number,
+                                labels_payload,
+                            )
 
                             if annotations:
                                 self._upload_job_annotations(job.id, annotations)
@@ -222,14 +229,24 @@ class TaskProcessor:
         with Image.open(image_data) as image:
             return image.copy()
 
-    def _process_image(self, image, frame_number, label_id):
+    def _process_image(self, image, frame_number, labels_payload):
         """Run model inference and return CVAT shape payloads for one frame."""
         model_results = self.model.segment_image(image)
+        label_lookup = labels_payload["lookup"]
+        fallback_label_id = labels_payload["fallback"]
 
         annotations = []
         for result in model_results:
             if "mask" not in result:
                 continue
+
+            predicted_label = str(result.get("label", "")).strip()
+            label_id = label_lookup.get(self._normalize_label_key(predicted_label), fallback_label_id)
+
+            if label_id == fallback_label_id and predicted_label:
+                logger.warning(
+                    f"Predicted label '{predicted_label}' not found on task; using fallback label ID {fallback_label_id}"
+                )
 
             annotations.append(
                 {
@@ -248,9 +265,13 @@ class TaskProcessor:
             )
 
         return annotations
+
+    @staticmethod
+    def _normalize_label_key(name: str) -> str:
+        return " ".join(name.lower().split())
     
-    def _get_or_create_label(self, task_id):
-        """Get a label for annotations from labels defined on the task."""
+    def _get_task_labels(self, task_id):
+        """Load task labels and build normalized name -> label_id lookup."""
         try:
             labels_response, _ = self.labels_api.list(task_id=task_id, page_size=100)
             task_labels = labels_response.results if labels_response and labels_response.results else []
@@ -258,6 +279,10 @@ class TaskProcessor:
             if not task_labels:
                 logger.error(f"No labels found on task {task_id}. Cannot upload annotations.")
                 return None
+
+            label_lookup = {
+                self._normalize_label_key(label.name): label.id for label in task_labels
+            }
 
             requested_label_id = os.getenv("WINDOW_SEG_LABEL_ID")
             if requested_label_id:
@@ -268,13 +293,15 @@ class TaskProcessor:
                 else:
                     for label in task_labels:
                         if label.id == requested_label_id:
-                            logger.info(f"Using task label from WINDOW_SEG_LABEL_ID: {label.name} (ID: {label.id})")
-                            return label
+                            logger.info(
+                                f"Using fallback label from WINDOW_SEG_LABEL_ID: {label.name} (ID: {label.id})"
+                            )
+                            return {"lookup": label_lookup, "fallback": label.id}
                     logger.warning(f"WINDOW_SEG_LABEL_ID={requested_label_id} not found on task {task_id}; using first task label")
 
             selected_label = task_labels[0]
-            logger.info(f"Using first task label: {selected_label.name} (ID: {selected_label.id})")
-            return selected_label
+            logger.info(f"Using first task label as fallback: {selected_label.name} (ID: {selected_label.id})")
+            return {"lookup": label_lookup, "fallback": selected_label.id}
         except Exception as e:
             logger.error(f"Failed to load task labels from CVAT for task {task_id}: {e}")
             return None
