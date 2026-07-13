@@ -48,6 +48,10 @@ yarn-error.log*
 
 # Ignore all the installed packages
 node_modules
+
+# Environment files with secrets
+.env
+*.env.local
 /*env*/
 /.*env*
 perfkit.egg-info/

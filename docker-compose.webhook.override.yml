@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  cvat_server:
+    environment:
+      - SMOKESCREEN_OPTS=--allow-address="10.101.252.28"
+
+  cvat_worker_webhooks:
+    environment:
+      - SMOKESCREEN_OPTS=--allow-address="10.101.252.28"
